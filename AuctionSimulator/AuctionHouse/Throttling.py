@@ -1,8 +1,7 @@
 import numpy as np
-from .AuctionHouse import Controller
 
 
-class Planning(Controller):
+class Planning:
     """
     Parameters:
     ===========
@@ -10,19 +9,10 @@ class Planning(Controller):
     budgets_init (array): an array of initial budgets of all bidders.
     """
 
-    def __init__(self, planning_function='uniform', planning_kwargs=None, **kwargs):
-        super().__init__(**kwargs)
-        self.budgets_init = np.array([b.budget for b in self.bidders])
-
-        if planning_kwargs is None:
-            planning_kwargs = {}
-
-        if planning_function == 'uniform':
-            self.plan = self.uniform_planning(**planning_kwargs)
-        elif planning_function == 'sigmoid':
-            self.plan = self.sigmoid_planning(**planning_kwargs)
-        else:
-            raise AttributeError("unknown planning function")
+    def __init__(self, n_rounds, budgets_init):
+        self.n_rounds = n_rounds
+        self.budgets_init = budgets_init
+        self.n_bidders = len(budgets_init)
 
     def uniform_planning(self):
         """
@@ -65,12 +55,13 @@ class Planning(Controller):
         return plan
 
 
-class Probability(Controller):
+class Probability:
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        pass
 
-    def linear_probability(self, plan, **kwargs):
+    @staticmethod
+    def linear_probability(current_plan, current_budgets, fee, floor=0):
         """
         If the bidder's budget is below their plan, the probability of participation decreases linearly with
         fee up to a specified floor. The probability of participation is always 1 if the budget is above the plan.
@@ -79,7 +70,7 @@ class Probability(Controller):
 
         Parameters:
         ===========
-        house (object): An AuctionHouse object.
+        current_plan (array): The budget spending plan for the given round.
         floor (float): The lowest probability of participation. I.o.w., the probability of participation
                     if the budget is being spent faster than planned and the fee is 100%.
 
@@ -87,32 +78,28 @@ class Probability(Controller):
         ========
         probabilities (array): probabilities of participation for all bidders.
         """
-
-        if kwargs:
-            floor = kwargs['floor']
-        else:
-            floor = 0
+        n_bidders = len(current_budgets)
         assert (floor >= 0) & (floor <= 0), 'The floor must be between 0 and 1.'
-        fee = self.auctioned_object.fee
-        current_budgets = [b.budget for b in self.bidders]
-        probabilities = np.repeat(1 - fee * (1 - floor), self.n_bidders)
-        probabilities[current_budgets >= plan[self.counter]] = 1
+        probabilities = np.repeat(1 - fee * (1 - floor), n_bidders)
+        probabilities[current_budgets >= current_plan] = 1
         return probabilities
 
-    def total_probability(self, plan):
+    @staticmethod
+    def total_probability(current_plan, current_budgets):
         """
         The bidder will not participate in the auction if their budget is below the current plan
 
         Parameters:
         ===========
-        house (object): An AuctionHouse object.
+        current_plan (array):
+        current_budgets
         """
 
-        current_budgets = [b.budget for b in self.bidders]
-        probabilities = np.where(current_budgets >= plan[self.counter], 1, 0)
+        probabilities = np.where(current_budgets >= current_plan, 1, 0)
         return probabilities
 
-    def budget_probability(self):
+    @staticmethod
+    def budget_probability(current_budgets):
         """
         The probability of participating in the auction is proportional to the remaining budget relative
         to other bidders. Thus the bidder with the largest budget participates with probability equal to 1.
@@ -121,12 +108,11 @@ class Probability(Controller):
         def min_max_transform(arr):
             return (arr - arr.min()) / (arr.max() - arr.min())
 
-        current_budgets = np.array([b.budget for b in self.bidders])
         probabilities = min_max_transform(current_budgets)
         return probabilities
 
 
-class Decision(Controller):
+class Decision:
 
     @staticmethod
     def binomial_decision(probabilities):
