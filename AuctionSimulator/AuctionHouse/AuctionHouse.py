@@ -1,9 +1,9 @@
 import numpy as np
-from .AuctionTypes.StandardAuctions import FirstPriceAuction, SecondPriceAuction
-from .Analysis.Trackers import AuctionTracker, BidderTracker
+from AuctionSimulator.AuctionTypes.StandardAuctions import FirstPriceAuction, SecondPriceAuction
+from AuctionSimulator.Analysis.Trackers import AuctionTracker, BidderTracker
 
 
-class AuctionHouse:
+class Controller:
     """
     The main object of the simulator, which assembles all agents and controls the auction. The current auction only
     allows one auctioneer. It also allows multiple bidders.

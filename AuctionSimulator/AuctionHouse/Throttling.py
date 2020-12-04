@@ -1,7 +1,8 @@
 import numpy as np
+from .AuctionHouse import Controller
 
 
-class Planning:
+class Planning(Controller):
     """
     Parameters:
     ===========
@@ -55,12 +56,10 @@ class Planning:
         return plan
 
 
-class Probability:
+class Probability(Controller):
 
-    def __init__(self, plan):
-        self.plan = plan
-
-    def linear_probability(self, house, floor=0.):
+    @staticmethod
+    def linear_probability(house, plan, **kwargs):
         """
         If the bidder's budget is below their plan, the probability of participation decreases linearly with
         fee up to a specified floor. The probability of participation is always 1 if the budget is above the plan.
@@ -78,14 +77,19 @@ class Probability:
         probabilities (array): probabilities of participation for all bidders.
         """
 
+        if kwargs:
+            floor = kwargs['floor']
+        else:
+            floor = 0
         assert (floor >= 0) & (floor <= 0), 'The floor must be between 0 and 1.'
         fee = house.auctioned_object.fee
         current_budgets = [b.budget for b in house.bidders]
         probabilities = np.repeat(1 - fee * (1 - floor), house.n_bidders)
-        probabilities[current_budgets >= self.plan[house.counter]] = 1
+        probabilities[current_budgets >= plan[house.counter]] = 1
         return probabilities
 
-    def total_probability(self, house):
+    @staticmethod
+    def total_probability(house, plan):
         """
         The bidder will not participate in the auction if their budget is below the current plan
 
@@ -95,7 +99,7 @@ class Probability:
         """
 
         current_budgets = [b.budget for b in house.bidders]
-        probabilities = np.where(current_budgets >= self.plan[house.counter], 1, 0)
+        probabilities = np.where(current_budgets >= plan[house.counter], 1, 0)
         return probabilities
 
     @staticmethod
@@ -113,7 +117,7 @@ class Probability:
         return probabilities
 
 
-class Decision:
+class Decision(Controller):
 
     @staticmethod
     def binomial_decision(house, probabilities):
