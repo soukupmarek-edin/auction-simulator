@@ -1,6 +1,13 @@
 import numpy as np
 
 
+class Request:
+
+    def __init__(self, auctioned_object, time):
+        self.auctioned_object = auctioned_object
+        self.time = time
+
+
 class Auctioneer:
     """
     Implements the auctioneer.
@@ -46,6 +53,12 @@ class Auctioneer:
         probabilities = probabilities / probabilities.sum()
         obj_id = np.random.choice(np.arange(self.n_objects), p=probabilities)
         return self.auctioned_objects[obj_id]
+
+    def send_request(self):
+        auctioned_object = self.select_object_to_sell()
+        time = 0
+        request = Request(auctioned_object, time)
+        return request
 
 
 class AuctionedObject:

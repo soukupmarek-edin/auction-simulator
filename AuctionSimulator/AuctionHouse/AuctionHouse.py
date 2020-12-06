@@ -1,6 +1,7 @@
 import numpy as np
 from AuctionSimulator.AuctionTypes.StandardAuctions import FirstPriceAuction, SecondPriceAuction
 from AuctionSimulator.Analysis.Trackers import AuctionTracker, BidderTracker
+from AuctionSimulator.AuctionHouse.Throttling import Decision
 
 
 class Controller:
@@ -29,22 +30,30 @@ class Controller:
     """
 
     def __init__(self, n_rounds, auctioneer, bidders, auction_type='second_price', rp_policy=None, *,
-                 throttling=True, plan=None, probability_function=None, decision_function,
+                 throttling=False, plan=None, probability_function=None, probability_function_kwargs=None,
                  track_auctions=True, track_bidders=True):
+
         self.n_rounds = n_rounds
         self.n_bidders = len(bidders)
+        self.time = np.linspace(0, 24, n_rounds)
+
         if auction_type == 'second_price':
             self.auction_type = SecondPriceAuction()
         elif auction_type == 'first_price':
             self.auction_type = FirstPriceAuction()
         else:
             raise AttributeError('unknown auction type')
+
         self.rp_policy = rp_policy
 
         self.throttling = throttling
-        self.plan = plan
-        self.probability_function = probability_function
-        self.decision_function = decision_function
+        if throttling:
+            self.plan = plan
+            self.probability_function = probability_function
+            if probability_function_kwargs is None:
+                self.probability_function_kwargs = {}
+            else:
+                self.probability_function_kwargs = probability_function_kwargs
 
         self.bidders = bidders
         self.auctioneer = auctioneer
@@ -101,8 +110,9 @@ class Controller:
         if self.throttling:
             current_plan = self.plan[self.counter]
             current_budgets = np.array([b.budget for b in self.bidders])
-            probabilities = self.probability_function(current_plan, current_budgets, auctioned_object.fee)
-            decisions = self.decision_function(probabilities)
+            probabilities = self.probability_function(current_plan, current_budgets, auctioned_object.fee,
+                                                      **self.probability_function_kwargs)
+            decisions = Decision.binomial_decision(probabilities)
             bids[decisions] = 0
         else:
             probabilities = np.ones(self.n_bidders)
@@ -121,7 +131,7 @@ class Controller:
             self.auctioneer.fees_paid += payment * auctioned_object.fee
 
         if self.auction_tracker:
-            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, self.second_bid,
+            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, second_bid,
                                                                    payment, r, auctioned_object.fee])
 
         if self.bidder_tracker:

@@ -10,9 +10,10 @@ class Planning:
     """
 
     def __init__(self, n_rounds, budgets_init):
-        self.n_rounds = n_rounds
         self.budgets_init = budgets_init
         self.n_bidders = len(budgets_init)
+        self.time = np.linspace(0, 24, n_rounds)
+        self.n_rounds = n_rounds
 
     def uniform_planning(self):
         """
@@ -31,11 +32,9 @@ class Planning:
         plan = plan * (1 - t / self.n_rounds).reshape((self.n_rounds, 1))
         return plan
 
-    def sigmoid_planning(self, s=1., t0=2.):
+    def sigmoid_planning(self, s=1., t0=12.):
         """
         The spending is distributed according to an adjusted sigmoid function. The function can be parametrized.
-
-        Math: b_t = B(1-1/(1+exp(-10s/T*(t-T/t0))))
 
         Parameters:
         ===========
@@ -47,11 +46,18 @@ class Planning:
         ========
         plan (array): (n_rounds x n_bidders) matrix of planned budgets.
         """
-
         budget = np.tile(self.budgets_init, self.n_rounds).reshape((self.n_rounds, self.n_bidders))
-        t = np.arange(self.n_rounds)
-        scale = (1 - 1 / (1 + np.exp(-s / self.n_rounds * 10 * (t - self.n_rounds / t0)))).reshape(-1, 1)
-        plan = budget * scale
+        scale = 1 - 1 / (1 + np.exp(-s * (self.time - t0)))
+        plan = budget * scale.reshape(-1, 1)
+        return plan
+
+    def empirical_planning(self):
+        time = self.time
+        p1 = 1 - 0.25 / 24 * time[time <= 6]
+        p2 = 1.25 - 1.25 / 24 * time[time > 6]
+        scale = np.concatenate([p1, p2])
+        budget = np.tile(self.budgets_init, self.n_rounds).reshape((self.n_rounds, self.n_bidders))
+        plan = budget * scale.reshape(-1, 1)
         return plan
 
 
@@ -79,13 +85,13 @@ class Probability:
         probabilities (array): probabilities of participation for all bidders.
         """
         n_bidders = len(current_budgets)
-        assert (floor >= 0) & (floor <= 0), 'The floor must be between 0 and 1.'
+        assert (floor >= 0) & (floor <= 1), 'The floor must be between 0 and 1.'
         probabilities = np.repeat(1 - fee * (1 - floor), n_bidders)
         probabilities[current_budgets >= current_plan] = 1
         return probabilities
 
     @staticmethod
-    def total_probability(current_plan, current_budgets):
+    def total_probability(current_plan, current_budgets, fee, prob_under_plan=0):
         """
         The bidder will not participate in the auction if their budget is below the current plan
 
@@ -95,7 +101,7 @@ class Probability:
         current_budgets
         """
 
-        probabilities = np.where(current_budgets >= current_plan, 1, 0)
+        probabilities = np.where(current_budgets >= current_plan, 1, prob_under_plan)
         return probabilities
 
     @staticmethod

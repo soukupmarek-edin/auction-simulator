@@ -44,30 +44,7 @@ class BidderTracker:
         for variable in variables:
             df.loc[:, variable] = self.__dict__[f'{variable}_data']
 
-        return df
-
-    def make_budgets_dataframe(self):
-        df = pd.DataFrame(self.budgets_data,
-                          columns=list(np.arange(self.n_bidders)),
-                          index=list(np.arange(self.n_rounds)))
         df.index.name = 'auction_round'
-        df.columns.name = 'bidder_id'
-        return df
-
-    def make_bids_dataframe(self):
-        df = pd.DataFrame(self.bids_data,
-                          columns=list(np.arange(self.n_bidders)),
-                          index=list(np.arange(self.n_rounds)))
-        df.index.name = 'auction_round'
-        df.columns.name = 'bidder_id'
-        return df
-
-    def make_probabilities_dataframe(self):
-        df = pd.DataFrame(self.probabilities_data,
-                          columns=list(np.arange(self.n_bidders)),
-                          index=list(np.arange(self.n_rounds)))
-        df.index.name = 'auction_round'
-        df.columns.name = 'bidder_id'
         return df
 
 
@@ -89,6 +66,17 @@ class AuctionTracker:
     def __init__(self, n_rounds):
         self.columns = ['object_id', 'winner', 'winning_bid', 'second_bid', 'payment', 'reserve_price', 'fee']
         self.data = np.zeros((n_rounds, len(self.columns)))
+        self.n_rounds = n_rounds
+        self.time = self._make_time()
+
+    def _make_time(self):
+        dates = pd.date_range('2020-01-01', '2020-01-02', freq='S')
+        morning_size = dates[dates.hour <= 5].size
+        probabilities = np.concatenate([np.repeat(0.05, morning_size) / morning_size,
+                                        np.repeat(0.95, dates.size - morning_size) / (dates.size - morning_size)])
+        np.random.seed(42)
+        times = np.sort(np.random.choice(dates, p=probabilities, size=self.n_rounds))
+        return times
 
     def make_dataframe(self):
         """
@@ -98,5 +86,7 @@ class AuctionTracker:
 
         """
         df = pd.DataFrame(self.data, columns=self.columns)
+
+        df['time'] = self.time
         df.index.name = 'auction_round'
         return df
