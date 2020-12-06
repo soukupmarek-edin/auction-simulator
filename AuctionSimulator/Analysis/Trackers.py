@@ -74,7 +74,7 @@ class AuctionTracker:
         morning_size = dates[dates.hour <= 5].size
         probabilities = np.concatenate([np.repeat(0.05, morning_size) / morning_size,
                                         np.repeat(0.95, dates.size - morning_size) / (dates.size - morning_size)])
-        np.random.seed(42)
+        # np.random.seed(42)
         times = np.sort(np.random.choice(dates, p=probabilities, size=self.n_rounds))
         return times
 

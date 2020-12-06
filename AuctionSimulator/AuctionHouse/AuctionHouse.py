@@ -29,13 +29,12 @@ class Controller:
 
     """
 
-    def __init__(self, n_rounds, auctioneer, bidders, auction_type='second_price', rp_policy=None, *,
-                 throttling=False, plan=None, probability_function=None, probability_function_kwargs=None,
+    def __init__(self, n_rounds, auctioneer, bidders, auction_type='second_price',
+                 reserve_price_function=None,
+                 reserve_price_function_params=None,
+                 *,
+                 throttling=False, plan=None, probability_function=None, probability_function_params=None,
                  track_auctions=True, track_bidders=True):
-
-        self.n_rounds = n_rounds
-        self.n_bidders = len(bidders)
-        self.time = np.linspace(0, 24, n_rounds)
 
         if auction_type == 'second_price':
             self.auction_type = SecondPriceAuction()
@@ -44,23 +43,32 @@ class Controller:
         else:
             raise AttributeError('unknown auction type')
 
-        self.rp_policy = rp_policy
+        self.n_rounds = n_rounds
+        self.n_bidders = len(bidders)
+        self.time = np.linspace(0, 24, n_rounds)
+        self.winning_bid = 0
+        self.second_bid = 0
+
+        self.reserve_price = 0
+        self.reserve_price_function = reserve_price_function
+        if reserve_price_function_params is None:
+            self.reserve_price_function_params = {}
+        else:
+            self.reserve_price_function_params = reserve_price_function_params
 
         self.throttling = throttling
         if throttling:
             self.plan = plan
             self.probability_function = probability_function
-            if probability_function_kwargs is None:
-                self.probability_function_kwargs = {}
+            if probability_function_params is None:
+                self.probability_function_params = {}
             else:
-                self.probability_function_kwargs = probability_function_kwargs
+                self.probability_function_params = probability_function_params
 
         self.bidders = bidders
         self.auctioneer = auctioneer
-        self.auctioned_object = None
-        self.winning_bid = 0
-        self.second_bid = 0
         self.n_objects = self.auctioneer.n_objects
+
         for bidder in bidders:
             bidder.objects_bought = np.zeros(self.n_objects)
 
@@ -101,25 +109,30 @@ class Controller:
         bids = np.array([bidder.submit_bid(auctioned_object) for bidder in self.bidders])
 
         # reserve price
-        if self.rp_policy:
-            r = self.rp_policy(self)
+        if self.reserve_price_function:
+            realtime_kwargs = {'winning_bid': self.winning_bid,
+                               'second_bid': self.second_bid,
+                               'fee': auctioned_object.fee,
+                               'x0': self.auctioneer.x0[obj_id],
+                               'current_r': self.reserve_price}
+            self.reserve_price = self.reserve_price_function(realtime_kwargs, **self.reserve_price_function_params)
         else:
-            r = self.auctioneer.x0[obj_id]
+            self.reserve_price = self.auctioneer.x0[obj_id]
 
         # throttling - sets the bids of selected bidders to 0
         if self.throttling:
-            current_plan = self.plan[self.counter]
-            current_budgets = np.array([b.budget for b in self.bidders])
-            probabilities = self.probability_function(current_plan, current_budgets, auctioned_object.fee,
-                                                      **self.probability_function_kwargs)
+            realtime_kwargs = {'current_plan': self.plan[self.counter],
+                               'current_budgets': np.array([b.budget for b in self.bidders]),
+                               'fee': auctioned_object.fee}
+            probabilities = self.probability_function(realtime_kwargs, **self.probability_function_params)
             decisions = Decision.binomial_decision(probabilities)
             bids[decisions] = 0
         else:
             probabilities = np.ones(self.n_bidders)
             decisions = np.ones(self.n_bidders)
 
-        winner, winning_bid = self.auction_type.determine_winner(bids, r)
-        payment, second_bid = self.auction_type.determine_payment(bids, r)
+        winner, self.winning_bid = self.auction_type.determine_winner(bids, self.reserve_price)
+        payment, self.second_bid = self.auction_type.determine_payment(bids, self.reserve_price)
 
         if winner or winner == 0:
             self.bidders[winner].wins += 1
@@ -129,10 +142,12 @@ class Controller:
             self.auctioneer.auctioned_objects[obj_id].quantity -= 1
             self.auctioneer.revenue += payment * (1 - auctioned_object.fee)
             self.auctioneer.fees_paid += payment * auctioned_object.fee
+        else:
+            self.auctioneer.revenue += self.auctioneer.x0[obj_id]
 
         if self.auction_tracker:
-            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, second_bid,
-                                                                   payment, r, auctioned_object.fee])
+            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, self.winning_bid, self.second_bid,
+                                                                   payment, self.reserve_price, auctioned_object.fee])
 
         if self.bidder_tracker:
             self.bidder_tracker.budgets_data[self.counter, :] = np.array([b.budget for b in self.bidders])

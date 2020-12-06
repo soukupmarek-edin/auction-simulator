@@ -67,7 +67,7 @@ class Probability:
         pass
 
     @staticmethod
-    def linear_probability(current_plan, current_budgets, fee, floor=0):
+    def linear_probability(realtime_kwargs, **params):
         """
         If the bidder's budget is below their plan, the probability of participation decreases linearly with
         fee up to a specified floor. The probability of participation is always 1 if the budget is above the plan.
@@ -77,6 +77,8 @@ class Probability:
         Parameters:
         ===========
         current_plan (array): The budget spending plan for the given round.
+        current_budgets (array): Budget of every bidder in the given round
+        fee (float):
         floor (float): The lowest probability of participation. I.o.w., the probability of participation
                     if the budget is being spent faster than planned and the fee is 100%.
 
@@ -84,32 +86,41 @@ class Probability:
         ========
         probabilities (array): probabilities of participation for all bidders.
         """
+        current_plan = realtime_kwargs['current_plan']
+        current_budgets = realtime_kwargs['current_budgets']
+        fee = realtime_kwargs['fee']
+        floor = params['floor']
         n_bidders = len(current_budgets)
         assert (floor >= 0) & (floor <= 1), 'The floor must be between 0 and 1.'
+
         probabilities = np.repeat(1 - fee * (1 - floor), n_bidders)
         probabilities[current_budgets >= current_plan] = 1
         return probabilities
 
     @staticmethod
-    def total_probability(current_plan, current_budgets, fee, prob_under_plan=0):
+    def total_probability(realtime_kwargs, **params):
         """
-        The bidder will not participate in the auction if their budget is below the current plan
+        The bidder will participate in the auction with specified probability if their budget is below the current plan
 
         Parameters:
         ===========
-        current_plan (array):
-        current_budgets
+        current_plan (array): The budget spending plan for the given round.
+        current_budgets (array): Budget of every bidder in the given round.
+        prob_under_plan (float):
         """
-
+        current_plan = realtime_kwargs['current_plan']
+        current_budgets = realtime_kwargs['current_budgets']
+        prob_under_plan = params['prob_under_plan']
         probabilities = np.where(current_budgets >= current_plan, 1, prob_under_plan)
         return probabilities
 
     @staticmethod
-    def budget_probability(current_budgets):
+    def budget_probability(realtime_kwargs, **params):
         """
         The probability of participating in the auction is proportional to the remaining budget relative
         to other bidders. Thus the bidder with the largest budget participates with probability equal to 1.
         """
+        current_budgets = realtime_kwargs['current_budgets']
 
         def min_max_transform(arr):
             return (arr - arr.min()) / (arr.max() - arr.min())
