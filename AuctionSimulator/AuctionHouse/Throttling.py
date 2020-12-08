@@ -51,10 +51,11 @@ class Planning:
         plan = budget * scale.reshape(-1, 1)
         return plan
 
-    def empirical_planning(self):
+    def empirical_planning(self, **params):
+        slope = params['slope']
         time = self.time
-        p1 = 1 - 0.25 / 24 * time[time <= 6]
-        p2 = 1.25 - 1.25 / 24 * time[time > 6]
+        p1 = 1 - slope / 24 * time[time <= 6]
+        p2 = 1. + slope - (1. + slope) / 24 * time[time > 6]
         scale = np.concatenate([p1, p2])
         budget = np.tile(self.budgets_init, self.n_rounds).reshape((self.n_rounds, self.n_bidders))
         plan = budget * scale.reshape(-1, 1)

@@ -13,16 +13,17 @@ def one_shot(realtime_kwargs, **params):
     r = realtime_kwargs['current_r']
     b1 = realtime_kwargs['winning_bid']
     b2 = realtime_kwargs['second_bid']
+    x0 = realtime_kwargs['x0']
 
     if r == 0:
         r = np.mean([b1, b2])
 
     if r > b1:
-        return (1-0.3)*r
+        return np.max([x0, (1-0.3)*r])
     elif r < b2:
-        return (1+0.02)*r
+        return np.max([x0, (1+0.02)*r])
     else:
-        return (1+0.01)*r
+        return np.max([x0, (1+0.01)*r])
 
 
 def gradient_based(realtime_kwargs, **params):
@@ -41,6 +42,7 @@ def gradient_based(realtime_kwargs, **params):
     b1 = realtime_kwargs['winning_bid']
     b2 = realtime_kwargs['second_bid']
     r = realtime_kwargs['current_r']
+    x0 = realtime_kwargs['x0']
 
     eta = params['learning_rate']
     alpha = params['smoothing_rate']
@@ -50,12 +52,13 @@ def gradient_based(realtime_kwargs, **params):
     if r == 0:
         return np.mean([b1, b2])
 
-    arr = np.array([b1, b2, r])
-    b1, b2, rr = (arr-10)/(90-10)
+    arr = np.array([b1, b2, r, x0])
+    b1, b2, rr, x0 = arr/100
 
     grad1 = np.exp(-alpha*(rr-b1))/(1+np.exp(-alpha*(rr-b1)))
     grad2 = np.exp(-alpha*(rr-b2))/(1+np.exp(-alpha*(rr-b2)))
-    grad3 = -alpha*b1*np.exp(-alpha*(rr-b1))/(1+np.exp(-alpha*(rr-b1)))**2
+    grad3 = -alpha*(b1-x0)*np.exp(-alpha*(rr-b1))/(1+np.exp(-alpha*(rr-b1)))**2
     grad = np.sum([grad1, grad2, grad3])
 
-    return r + eta*grad
+    r = (rr + eta * grad)*100
+    return r
