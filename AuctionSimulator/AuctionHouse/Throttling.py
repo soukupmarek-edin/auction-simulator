@@ -99,6 +99,30 @@ class Probability:
         return probabilities
 
     @staticmethod
+    def lost_revenue_probability(realtime_kwargs, **params):
+        """
+        Kwargs:
+        =======
+        bids (array)
+        fee (float)
+
+        Parameters:
+        ===========
+        s (float)
+        """
+        bids = realtime_kwargs['bids']
+        fee = realtime_kwargs['fee']
+
+        s = params['s']
+
+        mu = bids.mean()
+        sigma = bids.std()
+
+        lost_revenue = (bids*fee - mu)/sigma
+        probabilities = 1/(1+np.exp(-s*lost_revenue))
+        return probabilities
+
+    @staticmethod
     def total_probability(realtime_kwargs, **params):
         """
         The bidder will participate in the auction with specified probability if their budget is below the current plan

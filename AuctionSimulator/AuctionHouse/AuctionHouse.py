@@ -123,7 +123,8 @@ class Controller:
         if self.throttling:
             realtime_kwargs = {'current_plan': self.plan[self.counter],
                                'current_budgets': np.array([b.budget for b in self.bidders]),
-                               'fee': auctioned_object.fee}
+                               'fee': auctioned_object.fee,
+                               'bids': bids}
             probabilities = self.probability_function(realtime_kwargs, **self.probability_function_params)
             decisions = Decision.binomial_decision(probabilities)
             bids[decisions] = 0
