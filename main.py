@@ -13,11 +13,11 @@ budgets = np.array([30., 50., 80., 100., 120., 200., 300., 500., 1000.])
 budgets_p = np.ones(9) / 9
 budgets_init = np.array([np.random.choice(budgets, p=budgets_p) for _ in range(n_bidders)])
 
-# fees = np.array([0, 0.3, 0.36, 0.68])
-# fees_p = np.array([0.36, 0.14, 0.30, 0.2])
-# fees_init = np.array([np.random.choice(fees, p=fees_p) for i in range(n_objects)])
+fees = np.array([0, 0.3, 0.36, 0.68])
+fees_p = np.array([0.36, 0.14, 0.30, 0.2])
+fees_init = np.array([np.random.choice(fees, p=fees_p) for i in range(n_objects)])
 
-auctioned_objects = np.array([AuctionedObject(i, 2.5, np.inf) for i in range(n_objects)])
+auctioned_objects = np.array([AuctionedObject(i, 2.5, np.inf, fee=fees_init[i]) for i in range(n_objects)])
 auctioneer = Auctioneer(auctioned_objects, x0=np.ones(n_objects) * 20)
 bidders = np.array([SimpleBidder(budget=budgets_init[i]) for i in range(n_bidders)])
 

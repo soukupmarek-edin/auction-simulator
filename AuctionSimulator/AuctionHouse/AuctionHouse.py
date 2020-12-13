@@ -33,7 +33,7 @@ class Controller:
                  reserve_price_function=None,
                  reserve_price_function_params=None,
                  *,
-                 throttling=False, plan=None, probability_function=None, probability_function_params=None,
+                 throttling=False, plan=None, probability_function=None,
                  track_auctions=True, track_bidders=True):
 
         if auction_type == 'second_price':
@@ -60,10 +60,6 @@ class Controller:
         if throttling:
             self.plan = plan
             self.probability_function = probability_function
-            if probability_function_params is None:
-                self.probability_function_params = {}
-            else:
-                self.probability_function_params = probability_function_params
 
         self.bidders = bidders
         self.auctioneer = auctioneer
@@ -125,7 +121,7 @@ class Controller:
                                'current_budgets': np.array([b.budget for b in self.bidders]),
                                'fee': auctioned_object.fee,
                                'bids': bids}
-            probabilities = self.probability_function(realtime_kwargs, **self.probability_function_params)
+            probabilities = self.probability_function(realtime_kwargs)
             decisions = Decision.binomial_decision(probabilities)
             bids[decisions] = 0
         else:

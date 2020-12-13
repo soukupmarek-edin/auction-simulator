@@ -51,11 +51,10 @@ class Planning:
         plan = budget * scale.reshape(-1, 1)
         return plan
 
-    def empirical_planning(self, **params):
-        slope = params['slope']
+    def empirical_planning(self, shift=0.25):
         time = self.time
-        p1 = 1 - slope / 24 * time[time <= 6]
-        p2 = 1. + slope - (1. + slope) / 24 * time[time > 6]
+        p1 = 1 - shift / 24 * time[time <= 6]
+        p2 = 1. + shift - (1. + shift) / 24 * time[time > 6]
         scale = np.concatenate([p1, p2])
         budget = np.tile(self.budgets_init, self.n_rounds).reshape((self.n_rounds, self.n_bidders))
         plan = budget * scale.reshape(-1, 1)
@@ -64,11 +63,10 @@ class Planning:
 
 class Probability:
 
-    def __init__(self):
-        pass
+    def __init__(self, **parameters):
+        self.parameters = parameters
 
-    @staticmethod
-    def linear_probability(realtime_kwargs, **params):
+    def linear_probability(self, realtime_data):
         """
         If the bidder's budget is below their plan, the probability of participation decreases linearly with
         fee up to a specified floor. The probability of participation is always 1 if the budget is above the plan.
@@ -87,10 +85,10 @@ class Probability:
         ========
         probabilities (array): probabilities of participation for all bidders.
         """
-        current_plan = realtime_kwargs['current_plan']
-        current_budgets = realtime_kwargs['current_budgets']
-        fee = realtime_kwargs['fee']
-        floor = params['floor']
+        current_plan = realtime_data['current_plan']
+        current_budgets = realtime_data['current_budgets']
+        fee = realtime_data['fee']
+        floor = self.parameters['floor']
         n_bidders = len(current_budgets)
         assert (floor >= 0) & (floor <= 1), 'The floor must be between 0 and 1.'
 
@@ -98,8 +96,7 @@ class Probability:
         probabilities[current_budgets >= current_plan] = 1
         return probabilities
 
-    @staticmethod
-    def lost_revenue_probability(realtime_kwargs, **params):
+    def lost_revenue_probability(self, realtime_data):
         """
         Kwargs:
         =======
@@ -110,20 +107,53 @@ class Probability:
         ===========
         s (float)
         """
-        bids = realtime_kwargs['bids']
-        fee = realtime_kwargs['fee']
+        current_plan = realtime_data['current_plan']
+        current_budgets = realtime_data['current_budgets']
+        bids = realtime_data['bids']
+        fee = realtime_data['fee']
+        s = self.parameters['s']
 
-        s = params['s']
+        if fee == 0.:
+            return np.ones(bids.size)
 
-        mu = bids.mean()
-        sigma = bids.std()
+        def reverse_sigmoid(a, s):
+            return 1 - 1 / (1 + np.exp(-s*a))
 
-        lost_revenue = (bids*fee - mu)/sigma
-        probabilities = 1/(1+np.exp(-s*lost_revenue))
+        a = (bids-bids.mean())/bids.std()
+        probabilities = reverse_sigmoid(a, s)*(1-fee)
+        probabilities = np.where(current_budgets >= current_plan, 1, probabilities)
         return probabilities
 
+    def combined_probability(self, realtime_data):
+        current_plan = realtime_data['current_plan']
+        current_budgets = realtime_data['current_budgets']
+        bids = realtime_data['bids']
+        fee = realtime_data['fee']
+        bids_center = self.parameters['bids_center']
+        fees_center = self.parameters['fees_center']
+
+        bids_hat = (bids-bids.max())/(bids.max()-bids.min())
+        gap = np.linalg.norm(current_plan-current_budgets)
+        gap /= np.max(gap)
+        gap -= np.mean(gap)
+
+        def reverse_sigmoid(a):
+            return 1 - 1 / (1 + np.exp(a))
+
+        prob = reverse_sigmoid(np.mean([(bids_hat-bids_center)*(fee-fees_center), gap]))
+        return prob
+
     @staticmethod
-    def total_probability(realtime_kwargs, **params):
+    def total_fee_probability(realtime_data):
+        current_plan = realtime_data['current_plan']
+        n_bidders = current_plan.size
+        fee = realtime_data['fee']
+        if fee == 0.:
+            return np.ones(n_bidders)
+        else:
+            return np.zeros(n_bidders)
+
+    def total_plan_probability(self, realtime_data):
         """
         The bidder will participate in the auction with specified probability if their budget is below the current plan
 
@@ -133,19 +163,19 @@ class Probability:
         current_budgets (array): Budget of every bidder in the given round.
         prob_under_plan (float):
         """
-        current_plan = realtime_kwargs['current_plan']
-        current_budgets = realtime_kwargs['current_budgets']
-        prob_under_plan = params['prob_under_plan']
+        current_plan = realtime_data['current_plan']
+        current_budgets = realtime_data['current_budgets']
+        prob_under_plan = self.parameters['prob_under_plan']
         probabilities = np.where(current_budgets >= current_plan, 1, prob_under_plan)
         return probabilities
 
     @staticmethod
-    def budget_probability(realtime_kwargs, **params):
+    def budget_probability(realtime_data):
         """
         The probability of participating in the auction is proportional to the remaining budget relative
         to other bidders. Thus the bidder with the largest budget participates with probability equal to 1.
         """
-        current_budgets = realtime_kwargs['current_budgets']
+        current_budgets = realtime_data['current_budgets']
 
         def min_max_transform(arr):
             return (arr - arr.min()) / (arr.max() - arr.min())
