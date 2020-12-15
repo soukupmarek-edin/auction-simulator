@@ -1,4 +1,5 @@
 import numpy as np
+from AuctionSimulator.AuctionHouse import functions
 
 
 class Planning:
@@ -65,6 +66,7 @@ class Probability:
 
     def __init__(self, **parameters):
         self.parameters = parameters
+        self.gaps = np.array([])
 
     def linear_probability(self, realtime_data):
         """
@@ -116,11 +118,8 @@ class Probability:
         if fee == 0.:
             return np.ones(bids.size)
 
-        def reverse_sigmoid(a, s):
-            return 1 - 1 / (1 + np.exp(-s*a))
-
-        a = (bids-bids.mean())/bids.std()
-        probabilities = reverse_sigmoid(a, s)*(1-fee)
+        standardized_bids = (bids-bids.mean())/bids.std()
+        probabilities = functions.reverse_sigmoid(standardized_bids, s)*(1-fee)
         probabilities = np.where(current_budgets >= current_plan, 1, probabilities)
         return probabilities
 
@@ -129,19 +128,19 @@ class Probability:
         current_budgets = realtime_data['current_budgets']
         bids = realtime_data['bids']
         fee = realtime_data['fee']
-        bids_center = self.parameters['bids_center']
+
         fees_center = self.parameters['fees_center']
+        gap_weight = self.parameters['gap_weight']
+        gap_s = self.parameters['gap_s']
+        bid_s = self.parameters['bid_s']
 
-        bids_hat = (bids-bids.max())/(bids.max()-bids.min())
-        gap = np.linalg.norm(current_plan-current_budgets)
-        gap /= np.max(gap)
-        gap -= np.mean(gap)
+        gap = (current_budgets - current_plan) / current_plan
+        p_gap = np.where(gap > 0, 1, np.exp(gap_s*gap))
 
-        def reverse_sigmoid(a):
-            return 1 - 1 / (1 + np.exp(a))
-
-        prob = reverse_sigmoid(np.mean([(bids_hat-bids_center)*(fee-fees_center), gap]))
-        return prob
+        bids_hat = functions.standardize(bids)
+        score = bids_hat*(fee-fees_center)
+        p_fee = functions.reverse_sigmoid(score, bid_s)
+        return gap_weight*p_gap + (1-gap_weight)*functions.reverse_sigmoid(p_fee, bid_s)
 
     @staticmethod
     def total_fee_probability(realtime_data):
@@ -177,10 +176,7 @@ class Probability:
         """
         current_budgets = realtime_data['current_budgets']
 
-        def min_max_transform(arr):
-            return (arr - arr.min()) / (arr.max() - arr.min())
-
-        probabilities = min_max_transform(current_budgets)
+        probabilities = functions.min_max_transform(current_budgets)
         return probabilities
 
 
