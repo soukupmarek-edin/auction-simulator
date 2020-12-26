@@ -17,13 +17,14 @@ class SimpleBidder:
 
     """
 
-    def __init__(self, budget=False):
+    def __init__(self, budget=False, scale=0.5):
         self.wins = 0
         self.objects_bought = None
         if not budget:
             self.budget = np.inf
         else:
             self.budget = budget
+        self.scale = scale
 
     def submit_bid(self, auctioned_object):
         """
@@ -38,7 +39,7 @@ class SimpleBidder:
         bid (float): the minimum of the bid chosen by the bidding strategy and the available budget.
 
         """
-        bid = np.exp(np.random.normal(loc=auctioned_object.quality, scale=0.5))
+        bid = np.exp(np.random.normal(loc=auctioned_object.quality, scale=self.scale))
         bid = min(bid, self.budget)
         return bid
 

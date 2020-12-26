@@ -78,7 +78,7 @@ class AuctionTracker:
         times = np.sort(np.random.choice(dates, p=probabilities, size=self.n_rounds))
         return times
 
-    def make_dataframe(self):
+    def make_dataframe(self, include_time=False):
         """
         Returns:
         ========
@@ -87,6 +87,7 @@ class AuctionTracker:
         """
         df = pd.DataFrame(self.data, columns=self.columns)
 
-        df['time'] = self.time
+        if include_time:
+            df['time'] = self.time
         df.index.name = 'auction_round'
         return df
