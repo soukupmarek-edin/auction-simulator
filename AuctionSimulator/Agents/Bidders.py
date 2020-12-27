@@ -1,6 +1,60 @@
 import numpy as np
 
 
+class GuaranteedBidder:
+
+    def __init__(self, target_displays, n_rounds, plan_type='uniform', b0=1, **kwargs):
+        self.budget = np.inf
+        self.target_displays = target_displays
+        self.n_rounds = n_rounds
+        if plan_type == 'uniform':
+            self.plan = self._make_uniform_plan()
+        else:
+            raise AttributeError("unknown plan type")
+        self.b = b0
+        self.kwargs = kwargs
+        self.round = 0
+        self.wins = 0
+        self.slacks = np.zeros(n_rounds)
+
+    def _make_uniform_plan(self):
+        plan = np.linspace(0, self.target_displays, self.n_rounds)
+        return plan
+
+
+class GuaranteedBidderGradient(GuaranteedBidder):
+
+    def submit_bid(self, auctioned_object):
+        slack = self.plan[self.round]-self.wins
+        self.slacks[self.round] = slack
+
+        def gradient(x, alpha):
+            return 4*(alpha+(1-2*alpha)*(x > 0))*x
+
+        if (self.plan[self.round]+self.wins) > 0:
+            error = (self.plan[self.round]-self.wins)/(self.plan[self.round]+self.wins)
+        else:
+            error = 0
+
+        self.b = self.b + self.kwargs['learning_rate']*gradient(error, alpha=self.kwargs['cost_shape'])
+
+        self.round += 1
+        return self.b
+
+
+class GuaranteedBidderRatio(GuaranteedBidder):
+
+    def submit_bid(self, auctioned_object):
+        slack = self.plan[self.round] - self.wins
+        self.slacks[self.round] = slack
+
+        if self.plan[self.round] > 0:
+            self.b = self.b - self.b*self.kwargs['learning_rate']*(self.wins/self.plan[self.round]-1)
+
+        self.round += 1
+        return self.b
+
+
 class SimpleBidder:
     """
     Implements a Simple Bidder agent. The agent's bidding strategy is to bid a random value drawn from the log-normal
