@@ -29,10 +29,9 @@ class Controller:
 
     """
 
-    def __init__(self, n_rounds, auctioneer, bidders, auction_type='second_price',
-                 reserve_price_function=None,
-                 reserve_price_function_params=None,
-                 *,
+    def __init__(self, n_rounds, auctioneer, bidders, guaranteed_campaign=None,
+                 auction_type='second_price',
+                 reserve_price_function=None, reserve_price_function_params=None,
                  throttling=False, plan=None, probability_function=None,
                  track_auctions=True, track_bidders=True):
 
@@ -63,6 +62,7 @@ class Controller:
 
         self.bidders = bidders
         self.auctioneer = auctioneer
+        self.guaranteed_campaign = guaranteed_campaign
         self.n_objects = self.auctioneer.n_objects
 
         for bidder in bidders:
@@ -131,6 +131,15 @@ class Controller:
         winner, self.winning_bid = self.auction_type.determine_winner(bids, self.reserve_price)
         payment, self.second_bid = self.auction_type.determine_payment(bids, self.reserve_price)
 
+        # guaranteed campaigns allocation
+        guaranteed_decision = 0
+        if self.guaranteed_campaign:
+            guaranteed_decision = self.guaranteed_campaign.decide_allocation(payment)
+            if guaranteed_decision == 1:
+                winner = None
+                payment = 0
+
+        # state space adjustment
         if winner or winner == 0:
             self.bidders[winner].wins += 1
             self.bidders[winner].budget -= payment
@@ -142,9 +151,12 @@ class Controller:
         else:
             self.auctioneer.revenue += self.auctioneer.x0[obj_id]
 
+        # data
+
         if self.auction_tracker:
             self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, self.winning_bid, self.second_bid,
-                                                                   payment, self.reserve_price, auctioned_object.fee])
+                                                                   payment, self.reserve_price, auctioned_object.fee,
+                                                                   guaranteed_decision])
 
         if self.bidder_tracker:
             self.bidder_tracker.budgets_data[self.counter, :] = np.array([b.budget for b in self.bidders])

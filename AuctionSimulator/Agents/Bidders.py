@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class GuaranteedBidder:
+class GuaranteedCampaign:
 
     def __init__(self, target_displays, n_rounds, plan_type='uniform', b0=1, **kwargs):
         self.budget = np.inf
@@ -16,13 +16,51 @@ class GuaranteedBidder:
         self.round = 0
         self.wins = 0
         self.slacks = np.zeros(n_rounds)
+        self.bids = np.zeros(n_rounds)
 
     def _make_uniform_plan(self):
         plan = np.linspace(0, self.target_displays, self.n_rounds)
         return plan
 
 
-class GuaranteedBidderGradient(GuaranteedBidder):
+class GuaranteedAllocation(GuaranteedCampaign):
+
+    def decide_allocation(self, current_payment):
+        slack = self.plan[self.round] - self.wins
+        self.slacks[self.round] = slack
+        self.bids[self.round] = self.b
+
+        if slack >= 0:
+            self.b = self.b + self.b*self.kwargs['learning_rate']*self.kwargs['dist'].pdf(current_payment)
+        else:
+            self.b = self.b - self.b*self.kwargs['learning_rate']*self.kwargs['dist'].pdf(current_payment)
+
+        self.round += 1
+        decision = int(self.b > current_payment)
+        self.wins += decision
+        return decision
+
+
+class GuaranteedAllocation2(GuaranteedCampaign):
+
+    def decide_allocation(self, current_payment):
+        slack = self.plan[self.round] - self.wins
+        ratio_left = (self.target_displays - self.wins) / (self.n_rounds - self.round)
+        self.slacks[self.round] = ratio_left
+        self.bids[self.round] = self.b
+        dist = self.kwargs['dist']
+
+        self.b = dist.ppf(ratio_left)
+        decision = int(self.b > current_payment)
+        self.wins += decision
+        self.round += 1
+        return decision
+
+
+class GuaranteedBidderGradient(GuaranteedCampaign):
+    """
+    This bidder uses the QuadQuad loss function
+    """
 
     def submit_bid(self, auctioned_object):
         slack = self.plan[self.round]-self.wins
@@ -42,7 +80,7 @@ class GuaranteedBidderGradient(GuaranteedBidder):
         return self.b
 
 
-class GuaranteedBidderRatio(GuaranteedBidder):
+class GuaranteedBidderRatio(GuaranteedCampaign):
 
     def submit_bid(self, auctioned_object):
         slack = self.plan[self.round] - self.wins
