@@ -64,8 +64,7 @@ class AuctionTracker:
     """
 
     def __init__(self, n_rounds):
-        self.columns = ['object_id', 'winner', 'winning_bid', 'second_bid', 'payment', 'reserve_price', 'fee',
-                        'guaranteed']
+        self.columns = ['object_id', 'winner', 'winning_bid', 'second_bid', 'payment', 'reserve_price', 'fee']
         self.data = np.zeros((n_rounds, len(self.columns)))
         self.n_rounds = n_rounds
         self.time = self._make_time()
