@@ -6,4 +6,4 @@ In the first stage, the simulator implements tools by which the auction owner ma
 
 In the second stage, I will develop the behavior of the buyers. The bidder agents may follow more or less sophisticated bidding strategies. The ultimate goal is to implement reinforcement learning techniques which will learn the optimal bidding strategies.
 
-The simulator implements two types of bidders, that correspond to two types of advertising campaigns. **RTB** bidders maximize key performance indicatiors (KPI) subject to budget constraints. **Guaranteed bidders** aim to reach some target KPI at minimum cost.
+The simulator implements two types of bidders, that correspond to two types of advertising campaigns. **RTB bidders** maximize key performance indicatiors (KPI) subject to budget constraints. **Guaranteed bidders** aim to reach some target KPI at minimum cost.
