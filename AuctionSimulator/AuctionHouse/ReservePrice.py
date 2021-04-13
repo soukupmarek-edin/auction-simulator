@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats, optimize
 
 
 class Basic:
@@ -17,10 +18,55 @@ class Basic:
 
 class Myerson:
 
-    def __init__(self, batch_size, batch_sample_size, n_features):
+    def __init__(self, batch_size, batch_sample_size, minprice=0):
         self.batch_size = batch_size
         self.batch_sample_size = batch_sample_size
-        self.n_features = n_features
+        self.minprice = minprice
+
+        self.rp = 0
+        self.gradient_update_counter = 0
+        self.batch_counter = 0
+
+        self._make_data_containers()
+
+    def _make_data_containers(self):
+        self.bids_data = np.array([])
+
+    @staticmethod
+    def _myerson_formula(r, dist, x0):
+        return r - (1 - dist.cdf(r)) / dist.pdf(r) - x0
+
+    def update_step(self, bids):
+        self.bids_data = np.concatenate([self.bids_data, bids])
+        self.gradient_update_counter += 1
+
+        if self.gradient_update_counter == self.batch_size:
+            s = np.random.choice(np.arange(self.bids_data.size), self.batch_sample_size)
+            bids_smpl = self.bids_data[s]
+
+            lbids = np.log(bids_smpl)
+            mean, std = lbids.mean(), lbids.std()
+            dist = stats.lognorm(s=std, loc=1e-5, scale=np.exp(mean))
+            x0 = self.minprice
+            self.rp = optimize.fsolve(lambda r: self._myerson_formula(r, dist, x0), x0=np.log(bids_smpl).mean())[0]
+
+            self._make_data_containers()
+            self.gradient_update_counter = 0
+
+    def predict(self):
+        return self.rp
+
+    def modify_auction(self, auction):
+        bids = auction.bids
+        self.update_step(bids)
+        self.rp = self.predict()
+
+        if self.rp > auction.winning_bid:
+            auction.revenue = auction.auctioned_object.x0
+            auction.payment = 0
+            auction.fee_paid = 0
+            auction.sold = False
+        return auction
 
 
 class Appnexus:
@@ -75,10 +121,12 @@ class Appnexus:
     def engineer_features(self, auction, b1, b2, x0):
         return np.array([1., auction.auctioned_object.quality])
 
-    def _minmax_transform(self, val, upper, lower):
+    @staticmethod
+    def _minmax_transform(val, upper, lower):
         return (val-lower)/(upper-lower)
 
-    def _reverse_minmax_transform(self, val, upper, lower):
+    @staticmethod
+    def _reverse_minmax_transform(val, upper, lower):
         return val*(upper-lower)+lower
 
     def _update_weights(self, X, b1, b2, x0):
