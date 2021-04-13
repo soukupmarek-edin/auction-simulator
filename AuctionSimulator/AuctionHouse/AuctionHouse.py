@@ -2,6 +2,8 @@ import numpy as np
 from AuctionSimulator.AuctionTypes.StandardAuctions import FirstPriceAuction, SecondPriceAuction
 from AuctionSimulator.Analysis.Trackers import AuctionTracker, BidderTracker
 from AuctionSimulator.AuctionHouse.Throttling import Decision
+from AuctionSimulator.AuctionHouse.ReservePrice import *
+from AuctionSimulator.AuctionHouse.Auctions import Auction
 
 
 class Controller:
@@ -29,31 +31,24 @@ class Controller:
 
     """
 
-    def __init__(self, n_rounds, auctioneer, bidders, guaranteed_campaign=None,
+    def __init__(self, n_rounds, auctioneer, bidders,
                  auction_type='second_price',
-                 reserve_price_function=None, reserve_price_function_params=None,
+                 reserve_price_policy=None,
                  throttling=False, plan=None, probability_function=None,
                  track_auctions=True, track_bidders=True):
 
-        if auction_type == 'second_price':
-            self.auction_type = SecondPriceAuction()
-        elif auction_type == 'first_price':
-            self.auction_type = FirstPriceAuction()
-        else:
-            raise AttributeError('unknown auction type')
-
+        self.auction_type = auction_type
         self.n_rounds = n_rounds
         self.n_bidders = len(bidders)
         self.time = np.linspace(0, 24, n_rounds)
         self.winning_bid = 0
         self.second_bid = 0
 
-        self.reserve_price = 0
-        self.reserve_price_function = reserve_price_function
-        if reserve_price_function_params is None:
-            self.reserve_price_function_params = {}
+        self.rp = 0
+        if reserve_price_policy is None:
+            self.reserve_price_policy = Basic()
         else:
-            self.reserve_price_function_params = reserve_price_function_params
+            self.reserve_price_policy = reserve_price_policy
 
         self.throttling = throttling
         if throttling:
@@ -62,7 +57,6 @@ class Controller:
 
         self.bidders = bidders
         self.auctioneer = auctioneer
-        self.guaranteed_campaign = guaranteed_campaign
         self.n_objects = self.auctioneer.n_objects
 
         for bidder in bidders:
@@ -103,19 +97,13 @@ class Controller:
         obj_id = auctioned_object.id_
         assert auctioned_object.quantity > 0, "No more objects to sell"
         bids = np.array([bidder.submit_bid(auctioned_object) for bidder in self.bidders])
+        auction = Auction(auctioned_object, bids, self.auction_type)
 
         # reserve price
-        if self.reserve_price_function:
-            realtime_kwargs = {'winning_bid': self.winning_bid,
-                               'second_bid': self.second_bid,
-                               'fee': auctioned_object.fee,
-                               'x0': self.auctioneer.x0[obj_id],
-                               'current_r': self.reserve_price}
-            self.reserve_price = self.reserve_price_function(realtime_kwargs, **self.reserve_price_function_params)
-        else:
-            self.reserve_price = self.auctioneer.x0[obj_id]
+        auction = self.reserve_price_policy.modify_auction(auction)
+        rp = self.reserve_price_policy.rp
 
-        # throttling - sets the bids of selected bidders to 0
+        # throttling - sets the bids of throttled bidders to 0
         if self.throttling:
             realtime_kwargs = {'current_plan': self.plan[self.counter],
                                'current_budgets': np.array([b.budget for b in self.bidders]),
@@ -128,26 +116,24 @@ class Controller:
             probabilities = np.ones(self.n_bidders)
             decisions = np.ones(self.n_bidders)
 
-        winner, self.winning_bid = self.auction_type.determine_winner(bids, self.reserve_price)
-        payment, self.second_bid = self.auction_type.determine_payment(bids, self.reserve_price)
+        winner, winning_bid = auction.winner, auction.winning_bid
+        second_bid = auction.second_bid
+        payment = auction.payment
+        revenue = auction.revenue
 
-        # state space adjustment
-        if winner or winner == 0:
-            self.bidders[winner].wins += 1
-            self.bidders[winner].budget -= payment
-            self.bidders[winner].objects_bought[obj_id] += 1
+        # data update
+        self.bidders[winner].wins += auction.sold
+        self.bidders[winner].budget -= payment
+        self.bidders[winner].objects_bought[obj_id] += auction.sold
 
-            self.auctioneer.auctioned_objects[obj_id].quantity -= 1
-            self.auctioneer.revenue += payment * (1 - auctioned_object.fee)
-            self.auctioneer.fees_paid += payment * auctioned_object.fee
-        else:
-            self.auctioneer.revenue += self.auctioneer.x0[obj_id]
+        self.auctioneer.auctioned_objects[obj_id].quantity -= auction.sold
+        self.auctioneer.revenue += revenue
+        self.auctioneer.fees_paid += payment * auctioned_object.fee * auction.sold
 
-        # data
-
+        # trackers
         if self.auction_tracker:
-            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, self.winning_bid, self.second_bid,
-                                                                   payment, self.reserve_price, auctioned_object.fee])
+            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, second_bid,
+                                                                   payment, rp, auctioned_object.fee, auctioned_object.x0])
 
         if self.bidder_tracker:
             self.bidder_tracker.budgets_data[self.counter, :] = np.array([b.budget for b in self.bidders])

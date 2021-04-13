@@ -23,12 +23,10 @@ class Auctioneer:
     x0 (array): the auctioneers valuation. Default None (valuation is 0 for all objects)
     """
 
-    def __init__(self, auctioned_objects, x0=None):
-        if x0 is None:
-            self.x0 = np.zeros(auctioned_objects.size)
-        else:
-            self.x0 = x0
+    def __init__(self, auctioned_objects, selection_rule='random'):
+        self.x0 = np.array([ao.x0 for ao in auctioned_objects])
         self.auctioned_objects = auctioned_objects
+        self.selection_rule = selection_rule
         self.n_objects = len(auctioned_objects)
         assert self.x0.size == self.auctioned_objects.size, "x0 must be of same size like auctioned_objects"
         self.revenue = 0
@@ -44,15 +42,24 @@ class Auctioneer:
         auctioned_object (AuctionedObject): the instance of the object selected for being auctioned in the given round.
 
         """
-        probabilities = np.array([self.auctioned_objects[i].quality for i in range(self.n_objects)])
-        # available quantity check
-        quantities = np.array([self.auctioned_objects[i].quantity for i in range(self.n_objects)])
-        assert quantities.any() > 0, "No more objects to sell"
-        probabilities = np.where(quantities == 0, 0, probabilities)
+        if self.selection_rule == 'random':
+            obj_ids = np.array([ao.id_ for ao in self.auctioned_objects])
+            quantities = np.array([ao.quantity for ao in self.auctioned_objects])
+            selected_id = np.random.choice(obj_ids[quantities > 0])
+            return self.auctioned_objects[selected_id]
 
-        probabilities = probabilities / probabilities.sum()
-        obj_id = np.random.choice(np.arange(self.n_objects), p=probabilities)
-        return self.auctioned_objects[obj_id]
+        elif self.selection_rule == 'quality':
+            probabilities = np.array([self.auctioned_objects[i].quality for i in range(self.n_objects)])
+            # available quantity check
+            quantities = np.array([self.auctioned_objects[i].quantity for i in range(self.n_objects)])
+            assert quantities.any() > 0, "No more objects to sell"
+            probabilities = np.where(quantities == 0, 0, probabilities)
+
+            probabilities = probabilities / probabilities.sum()
+            obj_id = np.random.choice(np.arange(self.n_objects), p=probabilities)
+            return self.auctioned_objects[obj_id]
+        else:
+            raise AttributeError("Unknown selection rule")
 
     def send_request(self):
         auctioned_object = self.select_object_to_sell()
@@ -75,9 +82,10 @@ class AuctionedObject:
 
     """
 
-    def __init__(self, id_, quality=1, quantity=1, fee=0):
+    def __init__(self, id_, quality=1, quantity=1, fee=0, x0=0):
         self.id_ = id_
         self.quality = quality
         self.quantity = quantity
         assert (fee >= 0) & (fee <= 1), "The fee must be between 0 and 1."
         self.fee = fee
+        self.x0 = x0
