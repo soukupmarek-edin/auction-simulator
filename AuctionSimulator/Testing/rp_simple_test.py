@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from AuctionSimulator.AuctionHouse.ReservePrice import Myerson
+from AuctionSimulator.AuctionHouse.ReservePrice import Myerson, Appnexus
 import pandas as pd
 
 n_rounds = 1000
@@ -9,16 +9,18 @@ x0 = 0
 bids = np.random.lognormal(mean=5, sigma=1, size=(n_rounds, n_bidders))
 bids = np.sort(bids, axis=1)[:, ::-1]
 
-# rp_policy = Appnexus(alpha=10, eta=0.05, beta_init=np.array([[1.]]))
-rp_policy = Myerson(100, 100)
+rp_policy = Appnexus(alpha=10, eta=0.05, beta_init=np.array([[1.]]))
+# rp_policy = Myerson(100, 100)
 
 
 if __name__ == '__main__':
     predicted_rp = np.zeros(n_rounds)
     for i, a in enumerate(bids):
+        b1 = a[0]
+        b2 = a[1]
 
         # gradient update step
-        rp_policy.update_step(a)
+        rp_policy.update_step(a, b1, b1)
 
         # prediction step
         rp = rp_policy.predict()

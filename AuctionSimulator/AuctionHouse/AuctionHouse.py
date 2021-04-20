@@ -35,7 +35,7 @@ class Controller:
                  auction_type='second_price',
                  reserve_price_policy=None,
                  throttling=False, plan=None, probability_function=None,
-                 track_auctions=True, track_bidders=True):
+                 track_auctions=False, track_bidders=False):
 
         self.auction_type = auction_type
         self.n_rounds = n_rounds
@@ -43,6 +43,8 @@ class Controller:
         self.time = np.linspace(0, 24, n_rounds)
         self.winning_bid = 0
         self.second_bid = 0
+        self.spa_revenue = 0
+        self.n_sold = 0
 
         self.rp = 0
         if reserve_price_policy is None:
@@ -122,6 +124,9 @@ class Controller:
         revenue = auction.revenue
 
         # data update
+        self.spa_revenue += second_bid
+        self.n_sold += auction.sold
+
         self.bidders[winner].wins += auction.sold
         self.bidders[winner].budget -= payment
         self.bidders[winner].objects_bought[obj_id] += auction.sold
@@ -133,7 +138,7 @@ class Controller:
         # trackers
         if self.auction_tracker:
             self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, second_bid,
-                                                                   payment, rp, auctioned_object.fee, auctioned_object.x0])
+                                                                   payment, rp, auctioned_object.fee, auctioned_object.minprice])
 
         if self.bidder_tracker:
             self.bidder_tracker.budgets_data[self.counter, :] = np.array([b.budget for b in self.bidders])

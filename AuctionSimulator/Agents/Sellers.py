@@ -24,11 +24,11 @@ class Auctioneer:
     """
 
     def __init__(self, auctioned_objects, selection_rule='random'):
-        self.x0 = np.array([ao.x0 for ao in auctioned_objects])
+        self.minprices = np.array([ao.minprice for ao in auctioned_objects])
         self.auctioned_objects = auctioned_objects
         self.selection_rule = selection_rule
         self.n_objects = len(auctioned_objects)
-        assert self.x0.size == self.auctioned_objects.size, "x0 must be of same size like auctioned_objects"
+        assert self.minprices.size == self.auctioned_objects.size, "minprices must be of same size like auctioned_objects"
         self.revenue = 0
         self.fees_paid = 0
 
@@ -79,13 +79,24 @@ class AuctionedObject:
                     offered in auctions more frequently.
     quantity (int): the amount of units of the object available for auction.
     fee (float): must be between 0 and 1. The share of the payment the auctioneer must give up if the object is sold.
+    minprice (float): the absolute minimum price the object can be sold for
 
     """
 
-    def __init__(self, id_, quality=1, quantity=1, fee=0, x0=0):
+    def __init__(self, id_, quantity=1, fee=0, minprice=0, bias=0, features=None, weights=None):
         self.id_ = id_
-        self.quality = quality
         self.quantity = quantity
         assert (fee >= 0) & (fee <= 1), "The fee must be between 0 and 1."
         self.fee = fee
-        self.x0 = x0
+        self.minprice = minprice
+
+        self.quality = bias
+
+        if features and weights:
+            self.quality += np.dot(features, weights)
+            self.features = features
+        elif features and not weights:
+            self.quality += np.dot(features, np.ones(features.size)/features.size)
+            self.features = features
+        elif not features and weights:
+            raise ValueError("Cannot have weights with no features")
