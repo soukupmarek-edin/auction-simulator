@@ -17,7 +17,7 @@ class Bidder(ABC):
 
 class LinearBidder(Bidder):
 
-    def __init__(self, weights, bias=0, sigma=1., budget=False):
+    def __init__(self, d_features, weights, bias=0, sigma=1., budget=False):
         super().__init__(budget)
         self.weights = weights
         self.bias = bias

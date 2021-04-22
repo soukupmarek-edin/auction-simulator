@@ -2,21 +2,25 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from AuctionSimulator.Agents.Sellers import AuctionedObject, Auctioneer
-from AuctionSimulator.Agents.Bidders import SimpleBidder, BreakTakingBidder
+from AuctionSimulator.Agents.Bidders import SimpleBidder, BreakTakingBidder, LinearBidder
 from AuctionSimulator.AuctionHouse import ReservePrice as Rp
 from AuctionSimulator.AuctionHouse import AuctionHouse
 from itertools import product
 
 n_rounds = 20000
-n_objects = 1
+n_objects = 10
 n_bidders = 10
 
+# auctioned object features
 f1 = np.random.uniform(0.1, 1., size=n_objects)
 f2 = np.random.binomial(1, p=0.5, size=n_objects)
+features = [f1, f2]
+d_features = len(features)
 
 auctioned_objects = np.array([AuctionedObject(id_=i, features=np.array([f1[i], f2[i]]), quantity=np.inf) for i in range(n_objects)])
 auctioneer = Auctioneer(auctioned_objects, selection_rule='random')
-bidders = np.array([BreakTakingBidder(sigma=0.25) for i in range(n_bidders)])
+# bidders = np.array([BreakTakingBidder(sigma=0.25) for i in range(n_bidders)])
+bidders = np.array([LinearBidder(d_features, weights=np.random.uniform(0.8, 1.2, size=d_features), bias=1) for _ in range(n_bidders)])
 
 batch_size = 500
 sample_size = 500
