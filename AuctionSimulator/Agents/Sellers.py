@@ -83,20 +83,17 @@ class AuctionedObject:
 
     """
 
-    def __init__(self, id_, quantity=1, fee=0, minprice=0, bias=0, features=None, weights=None):
+    def __init__(self, id_, features, weights=None, quantity=1, fee=0, minprice=0):
         self.id_ = id_
         self.quantity = quantity
         assert (fee >= 0) & (fee <= 1), "The fee must be between 0 and 1."
         self.fee = fee
         self.minprice = minprice
 
-        self.quality = bias
-
-        if features and weights:
-            self.quality += np.dot(features, weights)
-            self.features = features
-        elif features and not weights:
-            self.quality += np.dot(features, np.ones(features.size)/features.size)
-            self.features = features
-        elif not features and weights:
-            raise ValueError("Cannot have weights with no features")
+        self.quality = 0
+        self.features = features
+        self.n_features = features.size
+        if weights:
+            self.quality = np.dot(features, weights)
+        else:
+            self.quality = np.dot(features, np.ones(features.size))

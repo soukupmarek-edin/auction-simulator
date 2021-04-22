@@ -1,6 +1,6 @@
 import numpy as np
 from AuctionSimulator.AuctionTypes.StandardAuctions import FirstPriceAuction, SecondPriceAuction
-from AuctionSimulator.Analysis.Trackers import AuctionTracker, BidderTracker
+from AuctionSimulator.Data.Trackers import AuctionTracker, BidderTracker, ObjectTracker
 from AuctionSimulator.AuctionHouse.Throttling import Decision
 from AuctionSimulator.AuctionHouse.ReservePrice import *
 from AuctionSimulator.AuctionHouse.Auctions import Auction
@@ -34,32 +34,21 @@ class Controller:
     def __init__(self, n_rounds, auctioneer, bidders,
                  auction_type='second_price',
                  reserve_price_policy=None,
-                 throttling=False, plan=None, probability_function=None,
-                 track_auctions=False, track_bidders=False):
+                 track_auctions=False, track_bidders=False, track_objects=False):
 
         self.auction_type = auction_type
         self.n_rounds = n_rounds
-        self.n_bidders = len(bidders)
-        self.time = np.linspace(0, 24, n_rounds)
-        self.winning_bid = 0
-        self.second_bid = 0
-        self.spa_revenue = 0
-        self.n_sold = 0
 
-        self.rp = 0
-        if reserve_price_policy is None:
-            self.reserve_price_policy = Basic()
+        if not reserve_price_policy:
+            self.set_rp = False
         else:
+            self.set_rp = True
             self.reserve_price_policy = reserve_price_policy
-
-        self.throttling = throttling
-        if throttling:
-            self.plan = plan
-            self.probability_function = probability_function
 
         self.bidders = bidders
         self.auctioneer = auctioneer
         self.n_objects = self.auctioneer.n_objects
+        self.n_bidders = bidders.size
 
         for bidder in bidders:
             bidder.objects_bought = np.zeros(self.n_objects)
@@ -68,82 +57,53 @@ class Controller:
             self.auction_tracker = AuctionTracker(self.n_rounds)
         else:
             self.auction_tracker = None
+
         if track_bidders:
             self.bidder_tracker = BidderTracker(self.n_rounds, self.n_bidders)
         else:
             self.bidder_tracker = None
+
+        if track_objects:
+            self.object_tracker = ObjectTracker(self.n_rounds, self.auctioneer.auctioned_objects[0].n_features)
+        else:
+            self.object_tracker = None
         self.counter = 0
 
-    def run(self):
-        for _ in np.arange(self.n_rounds):
-            self.sell_object()
-
     def sell_object(self):
-        """
-        The process of selling the chosen object. The process goes as follows:
-        1) all bidders submit their bids.
-        2) reserve price is set.
-        3) winner and winning bid are determined according to the chosen rules.
-        4) payment is determined according to the chosen rules.
-        5) if there's a winner in the auction:
-            5.1) the winner is added a win to the counter of wins, deducted the payment from the budget and added the
-                object to the counter of bought objects.
-            5.2) the quantity of the sold object is decreased by one.
-            5.3) the auctioneer's revenue is increased by the payment*(1-fee) and their fees total is increased
-                by payment*fee.
-        6) if the either of the tracker objects are assigned to the auction, the requested values are recorded.
-        7) the round counter attribute is increased by one.
 
-        """
         auctioned_object = self.auctioneer.select_object_to_sell()
-        obj_id = auctioned_object.id_
         assert auctioned_object.quantity > 0, "No more objects to sell"
         bids = np.array([bidder.submit_bid(auctioned_object) for bidder in self.bidders])
         auction = Auction(auctioned_object, bids, self.auction_type)
 
         # reserve price
-        auction = self.reserve_price_policy.modify_auction(auction)
-        rp = self.reserve_price_policy.rp
+        if self.set_rp:
+            auction = self.reserve_price_policy.modify_auction(auction)
 
-        # throttling - sets the bids of throttled bidders to 0
-        if self.throttling:
-            realtime_kwargs = {'current_plan': self.plan[self.counter],
-                               'current_budgets': np.array([b.budget for b in self.bidders]),
-                               'fee': auctioned_object.fee,
-                               'bids': bids}
-            probabilities = self.probability_function(realtime_kwargs)
-            decisions = Decision.binomial_decision(probabilities)
-            bids[decisions] = 0
-        else:
-            probabilities = np.ones(self.n_bidders)
-            decisions = np.ones(self.n_bidders)
+        # place for throttling
 
-        winner, winning_bid = auction.winner, auction.winning_bid
-        second_bid = auction.second_bid
-        payment = auction.payment
-        revenue = auction.revenue
-
-        # data update
-        self.spa_revenue += second_bid
-        self.n_sold += auction.sold
-
-        self.bidders[winner].wins += auction.sold
-        self.bidders[winner].budget -= payment
-        self.bidders[winner].objects_bought[obj_id] += auction.sold
-
-        self.auctioneer.auctioned_objects[obj_id].quantity -= auction.sold
-        self.auctioneer.revenue += revenue
-        self.auctioneer.fees_paid += payment * auctioned_object.fee * auction.sold
-
-        # trackers
+        # tracker update
         if self.auction_tracker:
-            self.auction_tracker.data[self.counter, :] = np.array([obj_id, winner, winning_bid, second_bid,
-                                                                   payment, rp, auctioned_object.fee, auctioned_object.minprice])
+            self.auction_tracker.data[self.counter, :] = np.array([auctioned_object.id_,
+                                                                   auction.sold,
+                                                                   auction.winner,
+                                                                   auction.winning_bid,
+                                                                   auction.second_bid,
+                                                                   auction.payment,
+                                                                   auction.reserve_price,
+                                                                   auctioned_object.fee,
+                                                                   auctioned_object.minprice
+                                                                   ])
 
         if self.bidder_tracker:
             self.bidder_tracker.budgets_data[self.counter, :] = np.array([b.budget for b in self.bidders])
             self.bidder_tracker.bids_data[self.counter, :] = bids
-            self.bidder_tracker.probabilities_data[self.counter, :] = probabilities
-            self.bidder_tracker.decisions_data[self.counter, :] = decisions
+
+        if self.object_tracker:
+            self.object_tracker.data[self.counter, :] = np.concatenate([np.array([auctioned_object.id_]), auctioned_object.features])
 
         self.counter += 1
+
+    def run(self):
+        for _ in np.arange(self.n_rounds):
+            self.sell_object()

@@ -2,148 +2,213 @@ import numpy as np
 import pandas as pd
 from scipy import stats, optimize
 from collections import defaultdict
+from abc import ABC, abstractmethod
+from AuctionSimulator.Data.Trackers import HyperparameterTracker
 
 
-class Basic:
+def combined_stdev(meanc: float, means: np.ndarray, stdevs: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """
+    Calculates a combined standard deviation of multiple samples
+    :param meanc: combined mean
+    :param means:  means of all samples
+    :param stdevs: standard deviations of all samples
+    :param counts: number of observations in all samples
+    :return (float): combined standard deviation
+    """
+    return np.sqrt(np.sum(counts*(stdevs**2 + (means - meanc)**2))/np.sum(counts))
 
-    def __init__(self, batch_size, batch_sample_size, categories, target_ufps):
+
+def standardize(arr):
+    return (arr-arr.mean())/arr.std()
+
+
+def minmax_transform(arr):
+    return (arr-arr.min())/(arr.max()-arr.min())
+
+
+class ReplayBuffer:
+
+    def __init__(self, d_features, batch_size, sample_size=None):
+        self.d_features = d_features
+        self.d_outcomes = 7  # winning bid, second bid, mean bids, mean log bids, std bids, std log bids, number of bidders
         self.batch_size = batch_size
-        self.batch_sample_size = batch_sample_size
-        self.n_categories = categories.shape[0]
+        if not sample_size:
+            self.sample_size = batch_size
+        else:
+            self.sample_size = sample_size
+
+        self.counter = 0
+        self.make_data_containers()
+
+    def make_data_containers(self):
+        self.features = np.empty((self.batch_size, self.d_features))
+        self.outcomes = np.empty((self.batch_size, self.d_outcomes))
+
+    def save_data(self, features, outcomes):
+        """
+        Saves one row of data - characteristics of one auction and its outcomes
+        :param features: characteristics of the auction, e.g. attributes of the auctioned object
+        :param outcomes: continuous numeric outcomes of the auction
+        """
+
+        self.features[self.counter, :] = features
+        self.outcomes[self.counter, :] = outcomes
+
+        if self.counter == self.batch_size-1:
+            self.counter = 0
+        else:
+            self.counter += 1
+
+    def sample_from_data(self, reset_containers=True):
+        s = np.random.choice(np.arange(self.batch_size), self.sample_size)
+        f, o = self.features[s, :], self.outcomes[s, :]
+        if reset_containers:
+            self.make_data_containers()
+        return f, o
+
+    def record_auction(self, auction):
+        """
+        Online learning-specific and environment-specific
+        """
+        features = auction.auctioned_object.features
+        outcomes = [auction.winning_bid,
+                    auction.second_bid,
+                    auction.bids.mean(),
+                    np.log(auction.bids).mean(),
+                    auction.bids.std(),
+                    np.log(auction.bids).std(),
+                    auction.bids.size
+                    ]
+        self.save_data(features, outcomes)
+
+
+class ReservePricePolicy(ABC):
+
+    def __init__(self, d_features, batch_size, sample_size):
+        self.replay_buffer = ReplayBuffer(d_features, batch_size, sample_size)
+        self.d_features = d_features
+        self.batch_size = batch_size
+
+        self.counter = 0
+
+    @abstractmethod
+    def predict(self, features):
+        ...
+
+    @abstractmethod
+    def learn(self, feature_batch, outcome_batch):
+        ...
+
+    @abstractmethod
+    def modify_auction(self, auction):
+        ...
+
+
+class Basic(ReservePricePolicy):
+
+    def __init__(self, categories, target_ufps, batch_size, sample_size):
+        super().__init__(categories.shape[1], batch_size, sample_size)
+        assert categories.shape[0] == target_ufps.size, "The number of categories must equal the number of target ufps"
         self.categories = categories
+        self.n_categories = categories.shape[0]
         self.target_ufps = target_ufps
 
         self.rp_table = defaultdict(lambda: 0)
-        self.update_counter = 0
-        self.batch_counter = 0
 
-        self._make_data_containers()
+    def learn(self, feature_batch, outcome_batch):
 
-    def _make_data_containers(self):
-        self.highest_bids = np.zeros(self.batch_size)
-        self.categories = np.zeros((self.batch_size, self.categories.shape[1]))
-
-    def _save_data(self, winning_bid, category):
-        self.highest_bids[self.update_counter] = winning_bid
-        self.categories[self.update_counter, :] = category
-
-    def update_step(self, bids, category):
-        # data update
-        self._save_data(bids, category)
-        self.update_counter += 1
-
-        if self.update_counter == self.batch_size:
-
-            for i in range(self.n_categories):
-                category = self.categories[i, :]
-                selection = np.all(self.categories == category, axis=1)
-                ufp_target = self.target_ufps[i]
-                bids = self.highest_bids[selection]
+        for i in range(self.n_categories):
+            category = self.categories[i, :]
+            selection = np.all(feature_batch == category, axis=1)
+            ufp_target = self.target_ufps[i]
+            if np.any(selection):
+                bids = outcome_batch[selection, 0]  # select the winning bids for auctions in the given category
                 self.rp_table[tuple(category)] = np.quantile(bids, q=ufp_target)
 
-            self._make_data_containers()
-            self.update_counter = 0
-
     def predict(self, category):
-        return self.rp_table[category]
+        return self.rp_table[tuple(category)]
 
     def modify_auction(self, auction):
+        category = auction.auctioned_object.features
 
         # features and data preparation
-        winning_bid = auction.winning_bid
-        category = (auction.auctioned_object.id_, 0)
+        outcome = np.concatenate([np.array([auction.winning_bid]), np.repeat(np.nan, 6)])
+        self.replay_buffer.save_data(category, outcome)
 
         # update step
-        self.update_step(winning_bid, category)
+        if self.counter == self.batch_size-1:
+            feature_batch, outcome_batch = self.replay_buffer.sample_from_data()
+            self.learn(feature_batch, outcome_batch)
+            self.counter = 0
+        else:
+            self.counter += 1
 
         # prediction step
-        self.rp = self.predict(category)
+        rp = self.predict(category)
+        auction.reserve_price = rp
 
         # auction info update step
-        if self.rp > auction.winning_bid:
-
-            auction.revenue = 0
+        if rp > auction.winning_bid:
             auction.payment = 0
             auction.fee_paid = 0
             auction.sold = False
-        if (auction.auction_type == 'second_price') and (self.rp < auction.winning_bid) and (self.rp > auction.second_bid):
-            auction.payment = self.rp
-            auction.revenue = self.rp
+        if (auction.auction_type == 'second_price') and (rp < auction.winning_bid) and (rp > auction.second_bid):
+            auction.payment = rp
         return auction
 
 
-class Myerson:
+class Myerson(ReservePricePolicy):
 
-    def __init__(self, batch_size, batch_sample_size, config_df):
+    def __init__(self, categories, target_ufps, batch_size, sample_size, x0_lr):
+        super().__init__(categories.shape[1], batch_size, sample_size)
+        assert categories.shape[0] == target_ufps.size, "The number of categories must equal the number of target ufps"
+        self.categories = categories
+        self.target_ufps = target_ufps
         self.batch_size = batch_size
-        self.batch_sample_size = batch_sample_size
-        self.n_categories = config_df.index.nlevels
-        self.categories_names = list(config_df.index.names)
+        self.x0_lr = x0_lr
+        self.n_categories = categories.shape[0]
 
-        self.rp = 0
         self.rp_table = defaultdict(lambda: 0)
-        self.config_df = config_df
-        self.data_df = config_df.copy()
-        self.data_df['auctioned'] = 0
-        self.data_df['ufp'] = 0
-        self.gradient_update_counter = 0
-        self.batch_counter = 0
-
-        self._make_data_containers()
-
-    def _make_data_containers(self):
-        self.bids_data = np.array([])
-        self.auction_stats = np.zeros((self.batch_size, 3))
-        self.categories = np.zeros((self.batch_size, self.n_categories))
-
-    def _save_data(self, bids, category):
-        bids = np.log(bids)
-        mean, std, count = bids.mean(), bids.std(), bids.size
-        self.auction_stats[self.gradient_update_counter, :] = [mean, std, count]
-        self.categories[self.gradient_update_counter, :] = category
+        self.x0s = defaultdict(lambda: 0)
+        self.ufps_counter = defaultdict(lambda: 0)
+        self.category_counter = defaultdict(lambda: 0)
+        self.counter = 0
 
     def schedule_hyperparameters(self):
-        for category in self.data_df.index:
-            ufp_target = self.data_df.loc[category, 'ufp_target']
-            ufp_real = self.data_df.loc[category, 'ufp'] / self.data_df.loc[category, 'auctioned']
-            self.data_df.loc[category, 'x0'] = self.data_df.loc[category, 'x0'] + (1-ufp_real/ufp_target)*0.075
+        for c in range(self.n_categories):
+            category = tuple(self.categories[c, :])
+            if self.category_counter[category] > 0:
+                ufp_target = self.target_ufps[c]
+                ufp_real = self.ufps_counter[category]/self.category_counter[category]
+                if ufp_real < (ufp_target*0.9):
+                    self.x0s[category] = self.x0s[category] + (1-ufp_real/ufp_target)*self.x0_lr
 
-        self.data_df['ufp'] = 0
-        self.data_df['auctioned'] = 0
+        self.ufps_counter = defaultdict(lambda: 0)
+        self.category_counter = defaultdict(lambda: 0)
 
     @staticmethod
     def _myerson_formula(r, dist, x0):
         return r - (1 - dist.cdf(r)) / dist.pdf(r) - x0
 
-    def update_step(self, bids, category):
-        # data update
-        self._save_data(bids, category)
-        self.gradient_update_counter += 1
-        self.data_df.loc[category, 'auctioned'] += 1
+    def learn(self, feature_batch, outcome_batch):
 
-        if self.gradient_update_counter == self.batch_size:
-            # create batch data
-            index = pd.MultiIndex.from_arrays(self.categories.T)
-            index.names = self.categories_names
-            df = pd.DataFrame(self.auction_stats, index=index).sample(n=self.batch_sample_size)
+        # for each category, calculate the reserve price
+        for c in range(self.n_categories):
+            category = tuple(self.categories[c, :])
+            selection = np.all(feature_batch == category, axis=1)
 
-            # calculate means and standard deviations
-            # wa = lambda x: np.average(x, weights=df.loc[x.index, self.n_features+3])
-            df = df.groupby(self.categories_names).mean().sort_index()
-            df['rp'] = 0
-            df.columns = ['mean', 'std', 'count', 'rp']
+            if np.any(selection):
+                x0 = self.x0s[category]
+                means = outcome_batch[selection, 3]
+                stdevs = outcome_batch[selection, 5]
+                cnts = outcome_batch[selection, 6]
 
-            # for each category, calculate the reserve price
-            for i, idx in enumerate(df.index):
-                mean, std = df.loc[idx, ['mean', 'std']]
-                x0 = self.data_df.loc[idx, 'x0']
-                dist = stats.lognorm(s=std, loc=1e-5, scale=np.exp(mean))
-                self.rp_table[idx] = optimize.fsolve(lambda r: self._myerson_formula(r, dist, x0), x0=mean)[0]
+                mean_comb = np.average(means, weights=cnts)
+                std_comb = combined_stdev(mean_comb, means, stdevs, cnts)
 
-            self.schedule_hyperparameters()
-
-            self._make_data_containers()
-            self.gradient_update_counter = 0
+                dist = stats.lognorm(s=std_comb, loc=1e-5, scale=np.exp(mean_comb))
+                rp = optimize.fsolve(lambda r: self._myerson_formula(r, dist, x0), x0=mean_comb)[0]
+                self.rp_table[category] = rp
 
     def predict(self, category):
         return self.rp_table[category]
@@ -151,61 +216,62 @@ class Myerson:
     def modify_auction(self, auction):
 
         # features and data preparation
-        bids = auction.bids
-        category = (auction.auctioned_object.id_, 0)
-        x0 = self.data_df.loc[category, 'x0']
+        category = tuple(auction.auctioned_object.features)
+        self.category_counter[category] += 1
+        # winning bid, second bid, mean bids, mean log bids, std bids, std log bids, number of bidders
+        outcomes = np.array([np.nan, np.nan, np.mean(auction.bids), np.log(auction.bids).mean(), np.std(auction.bids), np.log(auction.bids).std(), auction.bids.size])
+        self.replay_buffer.save_data(category, outcomes)
 
         # update step
-        self.update_step(bids, category)
+        if self.counter == self.batch_size-1:
+            self.schedule_hyperparameters()
+            feature_batch, outcome_batch = self.replay_buffer.sample_from_data()
+            self.learn(feature_batch, outcome_batch)
+            self.counter = 0
+        else:
+            self.counter += 1
 
         # prediction step
-        self.rp = self.predict(category)
+        rp = self.predict(category)
+        auction.reserve_price = rp
 
         # auction info update step
-        if self.rp > auction.winning_bid:
-            self.data_df.loc[category, 'ufp'] += 1
+        if rp > auction.winning_bid:
+            self.ufps_counter[category] += 1
 
-            auction.auctioned_object.minprice = x0
-            auction.revenue = 0
             auction.payment = 0
             auction.fee_paid = 0
             auction.sold = False
-        if (auction.auction_type == 'second_price') and (self.rp < auction.winning_bid) and (self.rp > auction.second_bid):
-            auction.payment = self.rp
-            auction.revenue = self.rp
+        if (auction.auction_type == 'second_price') and (rp < auction.winning_bid) and (rp > auction.second_bid):
+            auction.payment = rp
         return auction
 
 
-class Appnexus:
+class Appnexus(ReservePricePolicy):
 
-    def __init__(self, alpha=20, eta=0.0001, mu=0, n_features=0, beta_init=None, batch_size=1, batch_sample_size=1, burnin_size=1):
-        self.beta = beta_init
+    def __init__(self, n_rounds, weights_init, batch_size, sample_size, ufp_target,
+                 alpha=20, eta=0.0001, mu=0, x0=0,
+                 track_hyperparameters=True):
+        super().__init__(weights_init.size, batch_size, sample_size)
+        self.weights = weights_init
+        self.sample_size = sample_size
         self.batch_size = batch_size
-        self.batch_sample_size = batch_sample_size
+        self.ufp_target = ufp_target
         self.alpha = alpha
         self.eta = eta
         self.mu = mu
-        self.n_features = n_features + 1
-        self.burnin_size = burnin_size  # number of BATCHES for initial learning
+        self.x0 = x0
+        self.d_features = weights_init.size
 
-        self.rp = 0
-        self.gradient_update_counter = 0
+        self.track_hyperparameters = track_hyperparameters
+        if track_hyperparameters:
+            self.hyperparam_tracker = HyperparameterTracker(n_rounds, 3, ['alpha', 'eta', 'x0'])
+
+        self.ufp_tracker = 0
+        self.ufp_counter = 0
+        self.lower, self.upper = 0, 10
+        self.counter = 0
         self.batch_counter = 0
-
-        self.lower = 0
-        self.upper = 10
-
-        self._make_data_containers()
-
-    def _make_data_containers(self):
-        self.X = np.zeros((self.batch_size, self.n_features))
-        self.B1 = np.zeros((self.batch_size, 1))
-        self.B2 = np.zeros((self.batch_size, 1))
-
-    def _save_data(self, feature_vector, b1, b2):
-        self.X[self.gradient_update_counter, ] = feature_vector
-        self.B1[self.gradient_update_counter, ] = b1
-        self.B2[self.gradient_update_counter, ] = b2
 
     def _revenue_function(self, r, b1, b2, x0=0):
         alpha = self.alpha
@@ -215,83 +281,83 @@ class Appnexus:
         return elem1-elem2-elem3
 
     def _revenue_function_gradient(self, X, b1, b2, x0=0):
-        beta, alpha = self.beta, self.alpha
-
-        r = X@beta
+        w, alpha = self.weights, self.alpha
+        w = w.reshape((self.d_features, 1))
+        r = X@w
         elem1 = -np.exp(-alpha * (r - b2)) / (1 + np.exp(-alpha * (r - b2)))
         elem2 = np.exp(-alpha * (r - b1)) / (1 + np.exp(-alpha * (r - b1)))
         elem3 = -alpha * (b1 - x0) * np.exp(-alpha * (r - b1)) / (1 + np.exp(-alpha * (r - b1))) ** 2
-        derivative = (elem1 + elem2 + elem3).reshape((self.batch_sample_size, 1))
-        return (X*derivative).T.sum(axis=1).reshape(-1, 1)
+        derivative = (elem1 + elem2 + elem3)
+        grad = (X*derivative).sum(axis=0)
+        return grad
 
-    def engineer_features(self, auction, b1, b2):
-        return np.array([1., auction.auctioned_object.quality])
-
-    @staticmethod
-    def _minmax_transform(val, upper, lower):
+    def _minmax_transform(self, val):
+        upper, lower = self.upper, self.lower
         return (val-lower)/(upper-lower)
 
-    @staticmethod
-    def _reverse_minmax_transform(val, upper, lower):
+    def _reverse_minmax_transform(self, val):
+        upper, lower = self.upper, self.lower
         return val*(upper-lower)+lower
 
-    def _update_weights(self, X, b1, b2, x0=0.):
-
+    def learn(self, features_batch, outcomes_batch):
+        b1, b2 = outcomes_batch[:, [0]], outcomes_batch[:, [1]]
         self.upper = self.upper + 1/(self.batch_counter+1)*(np.max(b1)-self.upper)
         self.lower = self.lower + 1/(self.batch_counter+1)*(np.min(b2)-self.lower)
+        b1, b2 = self._minmax_transform(b1), self._minmax_transform(b2)
 
-        if (self.batch_counter == self.burnin_size) and (self.gradient_update_counter == 0):
-            b2 = self._minmax_transform(b2, self.upper, self.lower)
-            self.beta = np.linalg.lstsq(X, b2/2, rcond=None)[0]
-
-        if self.batch_counter >= self.burnin_size:
-            s = np.random.choice(np.arange(X.shape[0]), self.batch_sample_size)
-            X_smpl = X[s, :]
-            b1_smpl = self._minmax_transform(b1[s], self.upper, self.lower)
-            b2_smpl = self._minmax_transform(b2[s], self.upper, self.lower)
-            grad = self._revenue_function_gradient(X_smpl, b1_smpl, b2_smpl, x0)
-            self.beta = self.beta + self.eta * (grad - 2*self.mu*self.beta)
-
-    def update_step(self, x, b1, b2):
-        # gradient update step
-        if self.gradient_update_counter < self.batch_size:
-            self._save_data(x, b1, b2)
-            self.gradient_update_counter += 1
+        if self.batch_counter == 0:  # weights initialization
+            self.weights = np.linalg.lstsq(features_batch, b2, rcond=None)[0]
+            self.weights = self.weights.flatten()
         else:
-            self.gradient_update_counter = 0
-            self.batch_counter += 1
+            grad = self._revenue_function_gradient(features_batch, b1, b2, x0=self.x0)
+            self.weights = self.weights + self.eta * (grad - 2*self.mu*self.weights)
 
-            self._update_weights(self.X, self.B1, self.B2)
-            self._make_data_containers()
+    def predict(self, features: np.ndarray) -> float:
+        rp = np.dot(self.weights, features)
+        rp = self._reverse_minmax_transform(rp)
+        return rp
 
-    def predict(self, feature_vector):
-        if self.batch_counter < self.burnin_size:
-            return 0
-        else:
-            rp = feature_vector.reshape((self.n_features, 1)).T@self.beta
-            rp = self._reverse_minmax_transform(rp, self.upper, self.lower)
-            return rp
+    def schedule_hyperparameters(self):
+        ufp_target = self.ufp_target
+        self.ufp_tracker = round(self.ufp_tracker + 0.5*(self.ufp_counter/self.batch_size - self.ufp_tracker), 2)
+        if self.ufp_tracker < ufp_target*0.9:
+            self.x0 = self.x0 + (1 - self.ufp_tracker / ufp_target) * 0.00075
+
+        self.ufp_counter = 0
 
     def modify_auction(self, auction):
-        b1, b2 = auction.winning_bid, auction.second_bid
 
-        x = self.engineer_features(auction, b1, b2)
+        # features and data preparation
+        feature_vector = auction.auctioned_object.features
+        # winning bid, second bid, mean bids, mean log bids, std bids, std log bids, number of bidders
+        outcomes = np.array([auction.winning_bid, auction.second_bid, np.nan, np.nan, np.nan, np.nan, np.nan])
+        self.replay_buffer.save_data(feature_vector, outcomes)
 
         # update step
-        self.update_step(x, b1, b2)
+        if self.counter == self.batch_size - 1:
+            # hyperparameter tracker
+            if self.track_hyperparameters:
+                self.hyperparam_tracker.data[self.batch_counter, :] = (self.alpha, self.eta, self.x0)
+            self.schedule_hyperparameters()
+            feature_batch, outcome_batch = self.replay_buffer.sample_from_data()
+            self.learn(feature_batch, outcome_batch)
+            self.counter = 0
+            self.batch_counter += 1
+        else:
+            self.counter += 1
 
         # prediction step
-        self.rp = self.predict(x)
+        rp = self.predict(feature_vector)
+        auction.reserve_price = rp
 
-        # modify auction
-        if self.rp > auction.winning_bid:
-            auction.revenue = 0
+        # auction info update step
+        if rp > auction.winning_bid:
+            self.ufp_counter += 1
             auction.payment = 0
             auction.fee_paid = 0
             auction.sold = False
-        if (auction.auction_type == 'second_price') and (self.rp < auction.winning_bid) and (self.rp > auction.second_bid):
-            auction.payment = self.rp[0][0]
-            auction.revenue = self.rp[0][0]
+        if (auction.auction_type == 'second_price') and (rp < auction.winning_bid) and (rp > auction.second_bid):
+            auction.payment = rp
         return auction
 
 

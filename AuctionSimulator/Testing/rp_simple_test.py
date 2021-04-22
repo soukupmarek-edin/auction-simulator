@@ -3,6 +3,10 @@ import matplotlib.pyplot as plt
 from AuctionSimulator.AuctionHouse.ReservePrice import Myerson, Appnexus
 import pandas as pd
 
+# budgets = np.array([30., 50., 80., 100., 120., 200., 300., 500., 1000.])
+# budgets_p = np.ones(9) / 9
+# budgets_init = np.array([np.random.choice(budgets, p=budgets_p) for _ in range(n_bidders)])
+
 n_rounds = 1000
 n_bidders = 50
 x0 = 0

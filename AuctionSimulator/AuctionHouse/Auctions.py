@@ -48,6 +48,7 @@ class Auction(FirstPriceAuction, SecondPriceAuction):
         self.bids = bids
         self.auction_type = auction_type
         self.sold = True
+        self.reserve_price = 0
 
         if auction_type == 'second_price':
             self.determine_winner = SecondPriceAuction.allocation_rule
