@@ -319,7 +319,7 @@ class Appnexus(ReservePricePolicy):
 
     def schedule_hyperparameters(self):
         ufp_target = self.ufp_target
-        self.ufp_tracker = round(self.ufp_tracker + 0.5*(self.ufp_counter/self.batch_size - self.ufp_tracker), 2)
+        self.ufp_tracker = round(self.ufp_tracker + 0.75*(self.ufp_counter/self.batch_size - self.ufp_tracker), 2)
         if self.ufp_tracker < ufp_target*0.9:
             self.x0 = self.x0 + (1 - self.ufp_tracker / ufp_target) * 0.00075
 

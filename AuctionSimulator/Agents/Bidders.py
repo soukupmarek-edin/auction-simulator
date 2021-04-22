@@ -1,68 +1,67 @@
 import numpy as np
+from abc import ABC, abstractmethod
 
 
-class SimpleBidder:
-    """
-    Implements a Simple Bidder agent. The agent's bidding strategy is to bid a random value drawn from the log-normal
-    distribution. The mean equals the quality of the auctioned object and the variance is 0.5.
+class Bidder(ABC):
 
-    Attributes:
-    ==========
-    wins (int): the counter of agent's wins.
-    objects_bought (array of int): a counter of the amount of objects the bidder has bought in the auction
-
-    Parameters:
-    ===========
-    budget (float): the budget the agent can spend in the auction. Default inf
-
-    """
-
-    def __init__(self, budget=False, sigma=0.5):
-        self.wins = 0
-        self.objects_bought = None
+    def __init__(self, budget=False):
         if not budget:
             self.budget = np.inf
         else:
             self.budget = budget
+
+    @abstractmethod
+    def submit_bid(self, auctioned_object):
+        ...
+
+
+class LinearBidder(Bidder):
+
+    def __init__(self, weights, bias=0, sigma=1., budget=False):
+        super().__init__(budget)
+        self.weights = weights
+        self.bias = bias
         self.sigma = sigma
 
     def submit_bid(self, auctioned_object):
-        """
-        Implementation of the agent's bidding strategy.
+        feature_vector = auctioned_object.features
+        bid = self.bias + np.dot(self.weights, feature_vector) + np.random.normal(loc=0, scale=self.sigma)
+        return max(0, min(bid, self.budget))
 
-        Parameters:
-        ===========
-        auctioned_object (object): must have attribute "quality".
 
-        Returns:
-        ========
-        bid (float): the minimum of the bid chosen by the bidding strategy and the available budget.
+class BreakTakingBidder(Bidder):
 
-        """
+    def __init__(self, budget=False, sigma=0.5, break_freq=0.05):
+        super().__init__(budget)
+        self.sigma = sigma
+        self.break_freq = break_freq
+        self.state = 1
+
+    def submit_bid(self, auctioned_object):
+        if np.random.uniform() < self.break_freq:
+            self.state *= -1
+
+        if self.state == 1:
+            bid = np.random.lognormal(mean=auctioned_object.quality, sigma=self.sigma)
+            bid = min(bid, self.budget)
+            return bid
+        elif self.state == -1:
+            return 0
+
+
+class SimpleBidder(Bidder):
+
+    def __init__(self, budget=False, sigma=0.5):
+        super().__init__(budget)
+        self.sigma = sigma
+
+    def submit_bid(self, auctioned_object):
         bid = np.random.lognormal(mean=auctioned_object.quality, sigma=self.sigma)
         bid = min(bid, self.budget)
         return bid
 
 
 class BidderWithPreferences:
-    """
-    Implements a bidder-with-preferences agent. The bidder is assigned preferences over the auctioned objects.
-    The agent's bidding strategy is to bid a random value drawn from the log-normal distribution.
-    The expected value equals the mean of the quality of the auctioned object and the agent's preference for that
-    object. The variance is 0.5.
-
-    Attributes:
-    ==========
-    wins (int): the counter of agent's wins.
-    objects_bought (array of int): a counter of the amount of objects the bidder has bought in the auction
-
-    Parameters:
-    ===========
-    preferences (array): an array of floats or integers describing the agent's preferences. The higher number,
-                        the higher preference for that object.
-    budget (float): the budget the agent can spend in the auction. Default inf/
-
-    """
 
     def __init__(self, preferences, budget=False):
         self.wins = 0
@@ -74,18 +73,7 @@ class BidderWithPreferences:
         self.preferences = preferences
 
     def submit_bid(self, auctioned_object):
-        """
-        Implementation of the agent's bidding strategy.
 
-        Parameters:
-        ===========
-        auctioned_object (object): must have attribute "quality".
-
-        Returns:
-        ========
-        bid (float): the minimum of the bid chosen by the bidding strategy and the available budget.
-
-        """
         mid = np.mean([auctioned_object.quality, self.preferences[auctioned_object.id_]])
         bid = np.exp(np.random.normal(loc=mid, scale=0.5))
         return min(bid, self.budget)

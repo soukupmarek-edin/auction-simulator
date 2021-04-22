@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from itertools import product
 from AuctionSimulator.Agents.Sellers import AuctionedObject, Auctioneer
-from AuctionSimulator.Agents.Bidders import SimpleBidder
+from AuctionSimulator.Agents.Bidders import SimpleBidder, BreakTakingBidder
 from AuctionSimulator.AuctionHouse import ReservePrice as Rp
 from AuctionSimulator.AuctionHouse import AuctionHouse
 
@@ -16,16 +16,16 @@ f2 = np.random.binomial(1, p=0.5, size=n_objects)
 
 auctioned_objects = np.array([AuctionedObject(id_=i, features=np.array([f1[i], f2[i]]), quantity=np.inf) for i in range(n_objects)])
 auctioneer = Auctioneer(auctioned_objects, selection_rule='random')
-bidders = np.array([SimpleBidder(sigma=0.25) for i in range(n_bidders)])
+bidders = np.array([BreakTakingBidder(sigma=0.25) for i in range(n_bidders)])
 
 batch_size = 64
 sample_size = 64
 
 weights_init = np.zeros(2)
 alpha = 250
-eta = 0.00065
+eta = 0.0006
 rp_policy = Rp.Appnexus(n_rounds//batch_size, weights_init, batch_size, sample_size,
-                        ufp_target=0.2, alpha=alpha, eta=eta, x0=0.01,
+                        ufp_target=0.2, alpha=alpha, eta=eta, x0=0.1,
                         track_hyperparameters=True)
 
 house = AuctionHouse.Controller(n_rounds, auctioneer, bidders,

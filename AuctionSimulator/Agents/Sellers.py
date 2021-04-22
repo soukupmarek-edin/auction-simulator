@@ -69,19 +69,6 @@ class Auctioneer:
 
 
 class AuctionedObject:
-    """
-    Implements the auctioned object.
-
-    Parameters:
-    ===========
-    id_ (int): the identification of the object.
-    quality (float): describes the value of the object. The higher quality, the better. Objects with higher quality are
-                    offered in auctions more frequently.
-    quantity (int): the amount of units of the object available for auction.
-    fee (float): must be between 0 and 1. The share of the payment the auctioneer must give up if the object is sold.
-    minprice (float): the absolute minimum price the object can be sold for
-
-    """
 
     def __init__(self, id_, features, weights=None, quantity=1, fee=0, minprice=0):
         self.id_ = id_

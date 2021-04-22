@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from itertools import product
 from AuctionSimulator.Agents.Sellers import AuctionedObject, Auctioneer
-from AuctionSimulator.Agents.Bidders import SimpleBidder
+from AuctionSimulator.Agents.Bidders import SimpleBidder, BreakTakingBidder
 from AuctionSimulator.AuctionHouse import ReservePrice as Rp
 from AuctionSimulator.AuctionHouse import AuctionHouse
 
@@ -16,7 +16,7 @@ f2 = np.random.binomial(1, p=0.5, size=n_objects)
 
 auctioned_objects = np.array([AuctionedObject(id_=i, features=np.array([f1[i], f2[i]]), quantity=np.inf) for i in range(n_objects)])
 auctioneer = Auctioneer(auctioned_objects, selection_rule='random')
-bidders = np.array([SimpleBidder(sigma=0.25) for i in range(n_bidders)])
+bidders = np.array([BreakTakingBidder(sigma=0.25) for i in range(n_bidders)])
 
 batch_size = 500
 sample_size = 500
