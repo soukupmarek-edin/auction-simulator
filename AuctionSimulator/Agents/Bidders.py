@@ -25,7 +25,7 @@ class LinearBidder(Bidder):
 
     def submit_bid(self, auctioned_object):
         feature_vector = auctioned_object.features
-        bid = self.bias + np.dot(self.weights, feature_vector) + np.random.normal(loc=0, scale=self.sigma)
+        bid = np.exp(np.random.normal(loc=self.bias + np.dot(self.weights, feature_vector), scale=self.sigma))
         return max(0, min(bid, self.budget))
 
 

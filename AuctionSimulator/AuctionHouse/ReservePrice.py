@@ -265,7 +265,7 @@ class Appnexus(ReservePricePolicy):
 
         self.track_hyperparameters = track_hyperparameters
         if track_hyperparameters:
-            self.hyperparam_tracker = HyperparameterTracker(n_rounds, 3, ['alpha', 'eta', 'x0'])
+            self.hyperparam_tracker = HyperparameterTracker(n_rounds, 4, ['alpha', 'eta', 'x0', 'ufp_tracker'])
 
         self.ufp_tracker = 0
         self.ufp_counter = 0
@@ -319,9 +319,8 @@ class Appnexus(ReservePricePolicy):
 
     def schedule_hyperparameters(self):
         ufp_target = self.ufp_target
-        self.ufp_tracker = round(self.ufp_tracker + 0.75*(self.ufp_counter/self.batch_size - self.ufp_tracker), 2)
-        if self.ufp_tracker < ufp_target*0.9:
-            self.x0 = self.x0 + (1 - self.ufp_tracker / ufp_target) * 0.00075
+        self.ufp_tracker = round(self.ufp_tracker + 0.05*(self.ufp_counter/self.batch_size - self.ufp_tracker), 2)
+        self.x0 = self.x0 + (1 - self.ufp_tracker / ufp_target) * 0.0075
 
         self.ufp_counter = 0
 
@@ -337,7 +336,7 @@ class Appnexus(ReservePricePolicy):
         if self.counter == self.batch_size - 1:
             # hyperparameter tracker
             if self.track_hyperparameters:
-                self.hyperparam_tracker.data[self.batch_counter, :] = (self.alpha, self.eta, self.x0)
+                self.hyperparam_tracker.data[self.batch_counter, :] = (self.alpha, self.eta, self.x0, self.ufp_tracker)
             self.schedule_hyperparameters()
             feature_batch, outcome_batch = self.replay_buffer.sample_from_data()
             self.learn(feature_batch, outcome_batch)
